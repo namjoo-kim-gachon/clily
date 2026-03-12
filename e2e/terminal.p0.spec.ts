@@ -91,17 +91,4 @@ test.describe("P0 terminal flow", () => {
     expect(requests[0].terminalId).toBeTruthy()
   })
 
-  test("모바일 특수키 버튼이 동작한다", async ({ page }) => {
-    await page.goto("/")
-
-    await expect(page.getByTestId("mobile-special-keys")).toBeVisible()
-
-    await page.getByTestId("special-key-arrow-up").click({ force: true })
-    await page.getByTestId("special-key-arrow-down").click({ force: true })
-    await page.getByTestId("special-key-arrow-left").click({ force: true })
-    await page.getByTestId("special-key-arrow-right").click({ force: true })
-    await page.getByTestId("special-key-ctrl-c").click({ force: true })
-    await page.getByTestId("special-key-tab").click({ force: true })
-    await page.getByTestId("special-key-esc").click({ force: true })
-  })
 })

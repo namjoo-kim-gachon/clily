@@ -56,10 +56,10 @@ describe("createTerminalRuntime", () => {
 
     runtime.writeText("ls\n")
     runtime.writeSpecial("arrow-up")
-    runtime.resize(120, 40)
+    runtime.resize(121, 40)
 
     expect(writes).toEqual(["ls\n", "\u001b[A"])
-    expect(resizes).toEqual([{ cols: 120, rows: 40 }])
+    expect(resizes).toEqual([{ cols: 121, rows: 40 }])
   })
 
   it("writeSequence가 step 순서와 80ms 지연을 보장한다", async () => {
