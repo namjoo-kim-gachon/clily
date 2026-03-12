@@ -12,40 +12,40 @@ import {
 } from "@/lib/terminal-protocol"
 
 describe("parseTextInputPayload", () => {
-  it("유효한 text payload를 파싱한다", () => {
+  it("parses a valid text payload", () => {
     expect(parseTextInputPayload({ data: "ls\n" })).toEqual({ data: "ls\n" })
   })
 
-  it("형식이 맞지 않으면 null을 반환한다", () => {
+  it("returns null when the shape is invalid", () => {
     expect(parseTextInputPayload({ data: 1 })).toBeNull()
     expect(parseTextInputPayload(null)).toBeNull()
   })
 })
 
 describe("parseSpecialInputPayload", () => {
-  it("유효한 special payload를 파싱한다", () => {
+  it("parses a valid special payload", () => {
     expect(parseSpecialInputPayload({ key: "arrow-up" })).toEqual({ key: "arrow-up" })
   })
 
-  it("형식이 맞지 않으면 null을 반환한다", () => {
+  it("returns null when the shape is invalid", () => {
     expect(parseSpecialInputPayload({ key: "unknown" })).toBeNull()
     expect(parseSpecialInputPayload({})).toBeNull()
   })
 })
 
 describe("parseSequenceInputPayload", () => {
-  it("유효한 sequence payload를 파싱한다", () => {
+  it("parses a valid sequence payload", () => {
     expect(parseSequenceInputPayload({ expression: "ctrl + 1 b" })).toEqual({ expression: "ctrl + 1 b" })
   })
 
-  it("형식이 맞지 않으면 null을 반환한다", () => {
+  it("returns null when the shape is invalid", () => {
     expect(parseSequenceInputPayload({ expression: 1 })).toBeNull()
     expect(parseSequenceInputPayload({})).toBeNull()
   })
 })
 
 describe("parseTerminalInputExpression", () => {
-  it("'ctrl + 1 b'를 chord + single step으로 파싱한다", () => {
+  it("parses 'ctrl + 1 b' into chord + single step", () => {
     expect(parseTerminalInputExpression("ctrl + 1 b")).toEqual({
       steps: [
         { kind: "chord", tokens: ["ctrl", "1"], sequence: "1" },
@@ -54,19 +54,19 @@ describe("parseTerminalInputExpression", () => {
     })
   })
 
-  it("'ctrl+b'를 단일 chord로 파싱한다", () => {
+  it("parses 'ctrl+b' into a single chord", () => {
     expect(parseTerminalInputExpression("ctrl+b")).toEqual({
       steps: [{ kind: "chord", tokens: ["ctrl", "b"], sequence: "\u0002" }],
     })
   })
 
-  it("'shift+tab'을 역탭 시퀀스로 파싱한다", () => {
+  it("parses 'shift+tab' into a reverse-tab sequence", () => {
     expect(parseTerminalInputExpression("shift+tab")).toEqual({
       steps: [{ kind: "chord", tokens: ["shift", "tab"], sequence: "\u001b[Z" }],
     })
   })
 
-  it("특수 단어 입력을 single step으로 파싱한다", () => {
+  it("parses special keywords into single-step input", () => {
     expect(parseTerminalInputExpression("tab")).toEqual({
       steps: [{ kind: "single", tokens: ["tab"], sequence: "\t" }],
     })
@@ -93,18 +93,18 @@ describe("parseTerminalInputExpression", () => {
     })
   })
 
-  it("알 수 없는 토큰은 에러를 반환한다", () => {
+  it("returns an error for unknown tokens", () => {
     expect(parseTerminalInputExpression("unknown")).toEqual({ error: "unknown token: unknown" })
   })
 })
 
 describe("parseResizePayload", () => {
-  it("유효한 resize payload를 파싱한다", () => {
+  it("parses a valid resize payload", () => {
     expect(parseResizePayload({ cols: 120, rows: 40 })).toEqual({ cols: 120, rows: 40 })
     expect(parseResizePayload({ cols: 120.9, rows: 40.2 })).toEqual({ cols: 120, rows: 40 })
   })
 
-  it("형식이 맞지 않으면 null을 반환한다", () => {
+  it("returns null when the shape is invalid", () => {
     expect(parseResizePayload({ cols: 0, rows: 40 })).toBeNull()
     expect(parseResizePayload({ cols: "120", rows: 40 })).toBeNull()
     expect(parseResizePayload(null)).toBeNull()
@@ -112,7 +112,7 @@ describe("parseResizePayload", () => {
 })
 
 describe("isMobileSpecialKey", () => {
-  it("허용된 key만 true를 반환한다", () => {
+  it("returns true only for allowed keys", () => {
     expect(isMobileSpecialKey("arrow-up")).toBe(true)
     expect(isMobileSpecialKey("ctrl-c")).toBe(true)
     expect(isMobileSpecialKey("noop")).toBe(false)
@@ -120,7 +120,7 @@ describe("isMobileSpecialKey", () => {
 })
 
 describe("getMobileSpecialSequence", () => {
-  it("모바일 특수키 시퀀스를 반환한다", () => {
+  it("returns mobile special-key sequences", () => {
     expect(getMobileSpecialSequence("arrow-up")).toBe("\u001b[A")
     expect(getMobileSpecialSequence("arrow-down")).toBe("\u001b[B")
     expect(getMobileSpecialSequence("arrow-right")).toBe("\u001b[C")
@@ -132,7 +132,7 @@ describe("getMobileSpecialSequence", () => {
 })
 
 describe("encodeTerminalOutputEvent", () => {
-  it("SSE output payload를 직렬화한다", () => {
+  it("serializes the SSE output payload", () => {
     expect(encodeTerminalOutputEvent("hello")).toBe('{"type":"terminal.output","data":"hello"}')
   })
 })

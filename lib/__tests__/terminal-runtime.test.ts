@@ -1,3 +1,4 @@
+// @vitest-environment node
 import { describe, expect, it, vi } from "vitest"
 
 import { createTerminalRuntime, createTerminalRuntimeManager } from "@/lib/terminal-runtime"
@@ -50,7 +51,7 @@ function createTestAdapter() {
 }
 
 describe("createTerminalRuntime", () => {
-  it("text/special 입력과 resize를 어댑터로 전달한다", () => {
+  it("forwards text/special input and resize to the adapter", () => {
     const { adapter, writes, resizes } = createTestAdapter()
     const runtime = createTerminalRuntime(adapter)
 
@@ -62,7 +63,7 @@ describe("createTerminalRuntime", () => {
     expect(resizes).toEqual([{ cols: 121, rows: 40 }])
   })
 
-  it("writeSequence가 step 순서와 80ms 지연을 보장한다", async () => {
+  it("ensures writeSequence step order and 80ms delay", async () => {
     vi.useFakeTimers()
 
     try {
@@ -92,7 +93,7 @@ describe("createTerminalRuntime", () => {
     }
   })
 
-  it("writeSequence는 내부 큐로 직렬 실행된다", async () => {
+  it("serializes writeSequence through the internal queue", async () => {
     vi.useFakeTimers()
 
     try {
@@ -120,7 +121,7 @@ describe("createTerminalRuntime", () => {
     }
   })
 
-  it("subscribe로 output fan-out을 수행한다", () => {
+  it("fans out output through subscribe", () => {
     const { adapter, emit } = createTestAdapter()
     const runtime = createTerminalRuntime(adapter)
 
@@ -138,7 +139,7 @@ describe("createTerminalRuntime", () => {
     expect(b).toEqual(["hello", "world"])
   })
 
-  it("backlog snapshot을 누적한다", () => {
+  it("accumulates backlog snapshots", () => {
     const { adapter, emit } = createTestAdapter()
     const runtime = createTerminalRuntime(adapter)
 
@@ -148,7 +149,7 @@ describe("createTerminalRuntime", () => {
     expect(runtime.getBacklogSnapshot()).toEqual(["chunk-1", "chunk-2"])
   })
 
-  it("onExit이 발생하면 close 구독자가 호출된다", () => {
+  it("calls close subscribers when onExit occurs", () => {
     const { adapter, emitExit } = createTestAdapter()
     const runtime = createTerminalRuntime(adapter)
     const onClose = vi.fn()
@@ -161,7 +162,7 @@ describe("createTerminalRuntime", () => {
 })
 
 describe("createTerminalRuntimeManager", () => {
-  it("초기 상태에 최소 1개 세션을 보장한다", () => {
+  it("guarantees at least one session in the initial state", () => {
     const manager = createTerminalRuntimeManager()
 
     const sessions = manager.listSessions()
@@ -169,7 +170,7 @@ describe("createTerminalRuntimeManager", () => {
     expect(manager.getDefaultTerminalId()).toBe(sessions[0])
   })
 
-  it("createSession은 세션을 추가한다", () => {
+  it("adds a session with createSession", () => {
     const manager = createTerminalRuntimeManager()
     const first = manager.listSessions()
 
@@ -180,7 +181,7 @@ describe("createTerminalRuntimeManager", () => {
     expect(sessions.length).toBe(first.length + 1)
   })
 
-  it("deleteSession으로 마지막 세션을 삭제해도 최소 1개를 유지한다", () => {
+  it("keeps at least one session after deleting the last one", () => {
     const manager = createTerminalRuntimeManager()
     const [only] = manager.listSessions()
 

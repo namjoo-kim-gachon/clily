@@ -9,7 +9,7 @@ function parseActiveLabel(text: string) {
 }
 
 test.describe("P1 terminal UI simplification", () => {
-  test("tmux 전용 UI가 렌더링되지 않는다", async ({ page }) => {
+  test("does not render tmux-specific UI", async ({ page }) => {
     await page.goto("/")
 
     await expect(page.getByTestId("terminal-page")).toBeVisible()
@@ -17,8 +17,8 @@ test.describe("P1 terminal UI simplification", () => {
     await expect(page.getByTestId("window-tabs")).toHaveCount(0)
   })
 
-  test("모바일 viewport에서 스와이프로 터미널 전환이 동작한다", async ({ page, isMobile }) => {
-    test.skip(!isMobile, "모바일 프로젝트에서만 스와이프 전환 검증")
+  test("switches terminals with swipe on mobile viewport", async ({ page, isMobile }) => {
+    test.skip(!isMobile, "runs swipe transition check only in mobile projects")
 
     await page.goto("/")
 
@@ -48,8 +48,8 @@ test.describe("P1 terminal UI simplification", () => {
     await expect.poll(async () => parseActiveLabel((await label.textContent()) ?? "").active).toBe(1)
   })
 
-  test("데스크톱에서 좌우 버튼으로 터미널 전환이 동작한다", async ({ page, isMobile }) => {
-    test.skip(isMobile, "데스크톱 프로젝트에서만 화살표 전환 검증")
+  test("switches terminals with left/right buttons on desktop", async ({ page, isMobile }) => {
+    test.skip(isMobile, "runs arrow-button transition check only in desktop projects")
 
     await page.goto("/")
 

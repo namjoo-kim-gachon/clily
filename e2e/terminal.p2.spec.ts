@@ -9,7 +9,7 @@ function parseActiveLabel(text: string) {
 }
 
 test.describe("P2 persistent terminal", () => {
-  test("재연결 후에도 터미널 UI와 입력 전송이 유지된다", async ({ page }) => {
+  test("keeps terminal UI and input sending after reconnect", async ({ page }) => {
     await page.goto("/")
 
     const input = page.getByTestId("terminal-input")
@@ -28,7 +28,7 @@ test.describe("P2 persistent terminal", () => {
     await expect(afterReloadInput).toHaveValue("")
   })
 
-  test("터미널에서 exit 입력 시 해당 터미널이 삭제된다", async ({ page }) => {
+  test("removes the terminal when exit is entered", async ({ page }) => {
     let exitedTerminalId = ""
 
     await page.route("**/api/terminal/input/text", async (route) => {
@@ -49,13 +49,13 @@ test.describe("P2 persistent terminal", () => {
     await expect.poll(() => exitedTerminalId).not.toBe("")
 
     await expect.poll(async () => {
-      const response = await page.request.get("/api/terminal/sessions")
+      const response = await page.request.get(`/api/terminal/sessions?t=${Date.now()}`)
       const payload = (await response.json()) as { terminalIds: string[] }
       return payload.terminalIds.includes(exitedTerminalId)
     }).toBe(false)
   })
 
-  test("마지막 터미널에서 exit 입력 후에도 새 터미널 1개를 유지한다", async ({ page }) => {
+  test("keeps one terminal after exit on the last terminal", async ({ page }) => {
     await page.goto("/")
 
     const input = page.getByTestId("terminal-input")

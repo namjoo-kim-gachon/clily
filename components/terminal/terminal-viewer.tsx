@@ -209,7 +209,7 @@ function TerminalHeader({ terminalIds, activeTerminalId, onSwitchOffset, onCreat
               type="button"
               variant="outline"
               data-testid="terminal-nav-prev"
-              aria-label="이전 터미널"
+              aria-label="Previous terminal"
               className="h-9 w-9 px-0 text-base font-semibold"
               onClick={() => onSwitchOffset(-1)}
             >
@@ -219,7 +219,7 @@ function TerminalHeader({ terminalIds, activeTerminalId, onSwitchOffset, onCreat
               type="button"
               variant="outline"
               data-testid="terminal-nav-next"
-              aria-label="다음 터미널"
+              aria-label="Next terminal"
               className="h-9 w-9 px-0 text-base font-semibold"
               onClick={() => onSwitchOffset(1)}
             >
@@ -331,7 +331,7 @@ function TerminalShortcutForm({
         <button
           type="button"
           data-testid="terminal-special-toggle"
-          aria-label="특수 입력 목록 토글"
+          aria-label="Toggle shortcut list"
           className="absolute top-1/2 right-2 -translate-y-1/2 text-muted-foreground"
           onMouseDown={(event) => {
             event.preventDefault()

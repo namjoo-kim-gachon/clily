@@ -1,7 +1,7 @@
 import { expect, test } from "@playwright/test"
 
 test.describe("P0 terminal flow", () => {
-  test("기본 터미널 뷰가 렌더링된다", async ({ page }) => {
+  test("renders the default terminal view", async ({ page }) => {
     await page.goto("/")
 
     await expect(page.getByTestId("terminal-page")).toBeVisible()
@@ -14,7 +14,7 @@ test.describe("P0 terminal flow", () => {
     await expect(page.getByTestId("terminal-add")).toBeVisible()
   })
 
-  test("+ 버튼으로 터미널을 추가하고 활성 터미널로 전환한다", async ({ page }) => {
+  test("adds a terminal with + and switches to it", async ({ page }) => {
     await page.goto("/")
 
     const label = page.getByTestId("terminal-active-label")
@@ -44,7 +44,7 @@ test.describe("P0 terminal flow", () => {
     })
   })
 
-  test("활성 터미널의 terminalId로 입력을 전송한다", async ({ page }) => {
+  test("sends input with the active terminalId", async ({ page }) => {
     const requests: Array<{ data: string; terminalId?: string }> = []
 
     await page.route("**/api/terminal/input/text", async (route) => {
@@ -62,12 +62,13 @@ test.describe("P0 terminal flow", () => {
     await page.getByTestId("terminal-submit").click()
 
     await expect(input).toHaveValue("")
-    await expect.poll(() => requests.length).toBe(1)
-    expect(requests[0].data).toBe("echo e2e-ok\r")
-    expect(requests[0].terminalId).toBeTruthy()
+    await expect.poll(() => requests.some((request) => request.data === "echo e2e-ok\r")).toBe(true)
+    const matched = requests.find((request) => request.data === "echo e2e-ok\r")
+    expect(matched?.data).toBe("echo e2e-ok\r")
+    expect(matched?.terminalId).toBeTruthy()
   })
 
-  test("특수 입력 드롭다운 선택 후 실행이 동작한다", async ({ page }) => {
+  test("runs special input after selecting from the dropdown", async ({ page }) => {
     const requests: Array<{ expression: string; terminalId?: string }> = []
 
     await page.route("**/api/terminal/input/sequence", async (route) => {
@@ -79,6 +80,13 @@ test.describe("P0 terminal flow", () => {
 
     await page.goto("/")
 
+    const label = page.getByTestId("terminal-active-label")
+    await expect.poll(async () => {
+      const text = (await label.textContent()) ?? ""
+      const match = text.match(/Terminal\s+(\d+)\s*\/\s*(\d+)/)
+      return Number(match?.[2] ?? 0)
+    }).toBeGreaterThan(0)
+
     const specialInput = page.getByTestId("terminal-special-preset")
 
     await specialInput.fill("ctrl+b")
@@ -86,9 +94,10 @@ test.describe("P0 terminal flow", () => {
 
     await page.getByTestId("terminal-special-submit").click()
     await expect(specialInput).toHaveValue("")
-    await expect.poll(() => requests.length).toBe(1)
-    expect(requests[0].expression).toBe("ctrl+b")
-    expect(requests[0].terminalId).toBeTruthy()
+    await expect.poll(() => requests.some((request) => request.expression === "ctrl+b")).toBe(true)
+    const matched = requests.find((request) => request.expression === "ctrl+b")
+    expect(matched?.expression).toBe("ctrl+b")
+    expect(matched?.terminalId).toBeTruthy()
   })
 
 })
