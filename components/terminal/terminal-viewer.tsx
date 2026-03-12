@@ -6,9 +6,7 @@ import { FitAddon } from "@xterm/addon-fit"
 import { Terminal } from "@xterm/xterm"
 import "@xterm/xterm/css/xterm.css"
 
-import { MobileSpecialKeys } from "@/components/terminal/mobile-special-keys"
 import { Button } from "@/components/ui/button"
-import { type MobileSpecialKey } from "@/lib/terminal-protocol"
 
 type ClientServerMessage = { type: "terminal.output"; data: string } | { type: "terminal.closed" }
 
@@ -22,7 +20,22 @@ type CreateSessionResponse = {
 }
 
 const DEBUG_MODE = process.env.NEXT_PUBLIC_TERMINAL_DEBUG === "1"
-const SPECIAL_INPUT_PRESETS = ["tab", "shift+tab", "esc", "shift", "ctrl", "alt", "backspace", "ctrl+b"] as const
+const SPECIAL_INPUT_PRESETS = [
+  "ESC",
+  "TAB",
+  "SHIFT+TAB",
+  "ENTER",
+  "CTRL+C",  
+  "ARROW-UP",
+  "ARROW-DOWN",
+  "ARROW-LEFT",
+  "ARROW-RIGHT",
+  "BACKSPACE",
+  "CTRL+B",  
+  "SHIFT",
+  "CTRL",
+  "ALT",
+] as const
 const SWIPE_THRESHOLD_PX = 40
 
 function logDebug(message: string, meta?: Record<string, unknown>) {
@@ -58,23 +71,16 @@ function pickNextActive(
 export function TerminalViewer() {
   const containerRef = useRef<HTMLDivElement | null>(null)
   const eventSourceRef = useRef<EventSource | null>(null)
-  const specialExpressionRef = useRef<HTMLInputElement | null>(null)
-  const specialPresetRef = useRef<HTMLSelectElement | null>(null)
+  const specialPresetRef = useRef<HTMLInputElement | null>(null)
   const [inputValue, setInputValue] = useState("")
   const [specialExpression, setSpecialExpression] = useState("")
+  const [isSpecialDropdownOpen, setIsSpecialDropdownOpen] = useState(false)
   const [terminalIds, setTerminalIds] = useState<string[]>([])
   const [activeTerminalId, setActiveTerminalId] = useState<string | null>(null)
-  const [isTouchDevice] = useState(() => {
-    if (typeof window === "undefined") {
-      return false
-    }
-
-    const coarseMatch = window.matchMedia("(pointer: coarse)").matches
-    return coarseMatch || navigator.maxTouchPoints > 0
-  })
   const [isSessionReady, setIsSessionReady] = useState(false)
 
   const touchStartRef = useRef<{ x: number; y: number } | null>(null)
+  const lastResizeRef = useRef<{ cols: number; rows: number } | null>(null)
 
   const postJson = useCallback(async (url: string, payload: unknown) => {
     const response = await fetch(url, {
@@ -109,13 +115,6 @@ export function TerminalViewer() {
   const sendInput = useCallback(
     async (data: string) => {
       await postJson("/api/terminal/input/text", { data, terminalId: activeTerminalId ?? undefined })
-    },
-    [activeTerminalId, postJson]
-  )
-
-  const sendSpecial = useCallback(
-    async (key: MobileSpecialKey) => {
-      await postJson("/api/terminal/input/special", { key, terminalId: activeTerminalId ?? undefined })
     },
     [activeTerminalId, postJson]
   )
@@ -207,6 +206,7 @@ export function TerminalViewer() {
 
     eventSource.addEventListener("open", async () => {
       logDebug("eventsource opened", { terminalId: activeTerminalId })
+      lastResizeRef.current = { cols: terminal.cols, rows: terminal.rows }
       await sendResize(terminal.cols, terminal.rows)
     })
 
@@ -248,7 +248,14 @@ export function TerminalViewer() {
 
     const onResize = () => {
       fitAddon.fit()
-      void sendResize(terminal.cols, terminal.rows)
+
+      const next = { cols: terminal.cols, rows: terminal.rows }
+      if (lastResizeRef.current && lastResizeRef.current.cols === next.cols && lastResizeRef.current.rows === next.rows) {
+        return
+      }
+
+      lastResizeRef.current = next
+      void sendResize(next.cols, next.rows)
     }
 
     window.addEventListener("resize", onResize)
@@ -280,19 +287,15 @@ export function TerminalViewer() {
   const onSpecialSubmit = useCallback<NonNullable<ComponentProps<"form">["onSubmit"]>>(
     (event) => {
       event.preventDefault()
-      const expressionFromInput = specialExpressionRef.current?.value.trim() ?? ""
-      const selectedPreset = specialPresetRef.current?.value.trim() ?? ""
-      const expression = expressionFromInput || selectedPreset
+      const expression = specialPresetRef.current?.value.trim() ?? ""
       if (!expression) {
         return
       }
       void sendSequence(expression)
       setSpecialExpression("")
+      setIsSpecialDropdownOpen(false)
       if (specialPresetRef.current) {
         specialPresetRef.current.value = ""
-      }
-      if (specialExpressionRef.current) {
-        specialExpressionRef.current.value = ""
       }
     },
     [sendSequence]
@@ -310,30 +313,33 @@ export function TerminalViewer() {
           {currentIndex >= 0 ? `Terminal ${currentIndex + 1} / ${terminalIds.length}` : "Terminal"}
         </p>
         <div className="flex items-center gap-2">
-          {!isTouchDevice && terminalIds.length > 1 ? (
+          {terminalIds.length > 1 ? (
             <>
-              <button
+              <Button
                 type="button"
+                variant="outline"
                 data-testid="terminal-nav-prev"
                 aria-label="이전 터미널"
-                className="h-9 w-9 rounded-md border border-border/80 bg-background/80 text-sm transition hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/60"
+                className="h-9 w-9 px-0 text-base font-semibold"
                 onClick={() => switchTerminalByOffset(-1)}
               >
-                ←
-              </button>
-              <button
+                ‹
+              </Button>
+              <Button
                 type="button"
+                variant="outline"
                 data-testid="terminal-nav-next"
                 aria-label="다음 터미널"
-                className="h-9 w-9 rounded-md border border-border/80 bg-background/80 text-sm transition hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/60"
+                className="h-9 w-9 px-0 text-base font-semibold"
                 onClick={() => switchTerminalByOffset(1)}
               >
-                →
-              </button>
+                ›
+              </Button>
             </>
           ) : null}
           <Button
             type="button"
+            variant="outline"
             data-testid="terminal-add"
             aria-label="terminal-add"
             onClick={() => void createTerminal()}
@@ -346,7 +352,7 @@ export function TerminalViewer() {
 
       <div
         data-testid="terminal-viewport-shell"
-        className="relative min-h-0 overflow-hidden rounded-xl border border-border/80 bg-black shadow-[0_0_0_1px_var(--color-border)]"
+        className="relative min-h-0 overflow-hidden rounded-xl border border-border/80 bg-card shadow-[0_0_0_1px_var(--color-border)]"
         onTouchStart={(event) => {
           const touch = event.touches[0]
           touchStartRef.current = { x: touch.clientX, y: touch.clientY }
@@ -378,67 +384,106 @@ export function TerminalViewer() {
           switchTerminalByOffset(-1)
         }}
       >
-        <div data-testid="terminal-viewport" ref={containerRef} className="h-full w-full" />
+        <div className="h-full p-2">
+          <div data-testid="terminal-viewport" ref={containerRef} className="h-full w-full overflow-hidden bg-black" />
+        </div>
       </div>
 
-      <form onSubmit={onSubmit} className="grid gap-2 sm:grid-cols-[minmax(0,1fr)_auto] sm:items-center">
+      <form onSubmit={onSubmit} className="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-2">
         <input
           data-testid="terminal-input"
           aria-label="terminal-input"
           value={inputValue}
           onChange={(event) => setInputValue(event.target.value)}
-          placeholder="명령 입력 후 Enter"
+          placeholder="Type a command and press Enter"
           className="h-11 w-full rounded-md border border-input bg-background px-3 text-sm outline-none focus-visible:border-ring focus-visible:ring-2 focus-visible:ring-ring/40"
         />
         <Button
+          variant="outline"
           data-testid="terminal-submit"
           aria-label="terminal-submit"
           type="submit"
-          className="h-11 w-full px-4 sm:w-auto sm:min-w-20"
+          className="h-11 w-11 px-0 text-base"
         >
-          Enter
+          ↵
         </Button>
       </form>
 
-      <form onSubmit={onSpecialSubmit} className="grid gap-2 sm:grid-cols-[minmax(0,1fr)_220px_auto] sm:items-center">
-        <input
-          data-testid="terminal-special-expression"
-          aria-label="terminal-special-expression"
-          ref={specialExpressionRef}
-          value={specialExpression}
-          onChange={(event) => setSpecialExpression(event.target.value)}
-          placeholder="예: ctrl + 1 b"
-          className="h-11 w-full rounded-md border border-input bg-background px-3 text-sm outline-none focus-visible:border-ring focus-visible:ring-2 focus-visible:ring-ring/40"
-        />
-        <select
-          data-testid="terminal-special-preset"
-          aria-label="terminal-special-preset"
-          ref={specialPresetRef}
-          className="h-11 rounded-md border border-input bg-background px-3 text-sm outline-none focus-visible:border-ring focus-visible:ring-2 focus-visible:ring-ring/40"
-          defaultValue=""
-          onChange={(event) => {
-            const value = event.target.value
-            setSpecialExpression(value)
-          }}
-        >
-          <option value="">특수 입력 선택</option>
-          {SPECIAL_INPUT_PRESETS.map((preset) => (
-            <option key={preset} value={preset}>
-              {preset}
-            </option>
-          ))}
-        </select>
+      <form onSubmit={onSpecialSubmit} className="grid grid-cols-[minmax(0,1fr)_auto] items-start gap-2">
+        <div className="relative min-w-0">
+          <input
+            data-testid="terminal-special-preset"
+            aria-label="terminal-special-preset"
+            ref={specialPresetRef}
+            value={specialExpression}
+            onChange={(event) => {
+              setSpecialExpression(event.target.value)
+              setIsSpecialDropdownOpen(true)
+            }}
+            onFocus={() => setIsSpecialDropdownOpen(true)}
+            onBlur={() => {
+              window.setTimeout(() => {
+                setIsSpecialDropdownOpen(false)
+              }, 120)
+            }}
+            placeholder="Select or type a shortcut (e.g., Ctrl+B D)"
+            className="h-11 w-full rounded-md border border-input bg-background px-3 pr-10 text-sm outline-none focus-visible:border-ring focus-visible:ring-2 focus-visible:ring-ring/40"
+          />
+          <button
+            type="button"
+            data-testid="terminal-special-toggle"
+            aria-label="특수 입력 목록 토글"
+            className="absolute top-1/2 right-2 -translate-y-1/2 text-muted-foreground"
+            onMouseDown={(event) => {
+              event.preventDefault()
+              setIsSpecialDropdownOpen((prev) => !prev)
+              if (specialPresetRef.current) {
+                specialPresetRef.current.focus()
+              }
+            }}
+          >
+            {isSpecialDropdownOpen ? "▴" : "▾"}
+          </button>
+          {isSpecialDropdownOpen ? (
+            <div
+              data-testid="terminal-special-dropdown"
+              className="absolute bottom-[calc(100%+0.25rem)] left-0 z-20 max-h-52 w-full overflow-y-auto rounded-md border border-border bg-popover p-1 shadow-lg"
+            >
+              {SPECIAL_INPUT_PRESETS.filter((preset) =>
+                preset.toLowerCase().includes(specialExpression.trim().toLowerCase())
+              ).map((preset) => (
+                <button
+                  key={preset}
+                  type="button"
+                  className="w-full rounded-sm px-2 py-2 text-left text-sm hover:bg-accent"
+                  onMouseDown={(event) => {
+                    event.preventDefault()
+                    void sendSequence(preset)
+                    setSpecialExpression("")
+                    if (specialPresetRef.current) {
+                      specialPresetRef.current.value = ""
+                      specialPresetRef.current.focus()
+                    }
+                    setIsSpecialDropdownOpen(false)
+                  }}
+                >
+                  {preset}
+                </button>
+              ))}
+            </div>
+          ) : null}
+        </div>
         <Button
+          variant="outline"
           data-testid="terminal-special-submit"
           aria-label="terminal-special-submit"
           type="submit"
-          className="h-11 w-full px-4 sm:w-auto sm:min-w-24"
+          className="h-11 w-11 px-0 text-base"
         >
-          특수 실행
+          ⚡
         </Button>
       </form>
 
-      <MobileSpecialKeys onSendKeyAction={(key) => void sendSpecial(key)} />
     </div>
   )
 }

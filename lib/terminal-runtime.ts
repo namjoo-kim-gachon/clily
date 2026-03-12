@@ -147,6 +147,19 @@ function sleep(ms: number) {
   })
 }
 
+const OSC_COLOR_REPLY_PATTERN = /(?:\u001b|\\)?\](?:10|11|12);rgb:[0-9a-fA-F/]+(?:\u0007|\u001b\\)?/g
+const DEVICE_ATTRIBUTES_REPLY_PATTERN = /(?:\u001b|\\)?\[[?>][0-9;]*c/g
+const ZSH_PROMPT_WRAPPER_PATTERN = /%\{|%\}/g
+const STRAY_PROMPT_PERCENT_LINE_PATTERN = /(^|\n)%\s*(\r?\n)/g
+
+function sanitizeTerminalOutput(data: string) {
+  return data
+    .replace(OSC_COLOR_REPLY_PATTERN, "")
+    .replace(DEVICE_ATTRIBUTES_REPLY_PATTERN, "")
+    .replace(ZSH_PROMPT_WRAPPER_PATTERN, "")
+    .replace(STRAY_PROMPT_PERCENT_LINE_PATTERN, "$1")
+}
+
 function generateTerminalId() {
   return `terminal-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`
 }
@@ -181,10 +194,15 @@ export function createTerminalRuntime(
   }
 
   const broadcast = (data: string) => {
-    appendBacklog(data)
+    const sanitized = sanitizeTerminalOutput(data)
+    if (!sanitized) {
+      return
+    }
+
+    appendBacklog(sanitized)
 
     for (const listener of subscribers) {
-      listener(data)
+      listener(sanitized)
     }
   }
 
@@ -246,6 +264,10 @@ export function createTerminalRuntime(
     },
     resize: (cols, rows) => {
       if (disposed) {
+        return
+      }
+
+      if (lastCols === cols && lastRows === rows) {
         return
       }
 

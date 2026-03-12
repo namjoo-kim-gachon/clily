@@ -8,8 +8,7 @@ test.describe("P0 terminal flow", () => {
     await expect(page.getByTestId("terminal-viewport")).toBeVisible()
     await expect(page.getByTestId("terminal-input")).toBeVisible()
     await expect(page.getByTestId("terminal-submit")).toBeVisible()
-    await expect(page.getByTestId("terminal-submit")).toHaveText("Enter")
-    await expect(page.getByTestId("terminal-special-expression")).toBeVisible()
+    await expect(page.getByTestId("terminal-submit")).toHaveText("↵")
     await expect(page.getByTestId("terminal-special-preset")).toBeVisible()
     await expect(page.getByTestId("terminal-special-submit")).toBeVisible()
     await expect(page.getByTestId("terminal-add")).toBeVisible()
@@ -80,11 +79,13 @@ test.describe("P0 terminal flow", () => {
 
     await page.goto("/")
 
-    await page.getByTestId("terminal-special-preset").selectOption("ctrl+b")
-    await expect(page.getByTestId("terminal-special-expression")).toHaveValue("ctrl+b")
+    const specialInput = page.getByTestId("terminal-special-preset")
+
+    await specialInput.fill("ctrl+b")
+    await expect(specialInput).toHaveValue("ctrl+b")
 
     await page.getByTestId("terminal-special-submit").click()
-    await expect(page.getByTestId("terminal-special-expression")).toHaveValue("")
+    await expect(specialInput).toHaveValue("")
     await expect.poll(() => requests.length).toBe(1)
     expect(requests[0].expression).toBe("ctrl+b")
     expect(requests[0].terminalId).toBeTruthy()
