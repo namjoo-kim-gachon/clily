@@ -356,14 +356,12 @@ function TerminalShortcutForm({
     }
   }
 
-  const handleTogglePress = (event: { preventDefault: () => void }) => {
-    event.preventDefault()
+  const handleTogglePress = () => {
     blurActiveElement()
     onToggleDropdown()
   }
 
-  const handlePresetPress = (event: { preventDefault: () => void }, preset: string) => {
-    event.preventDefault()
+  const handlePresetPress = (preset: string) => {
     blurActiveElement()
     onSelectPreset(preset)
   }
@@ -377,9 +375,7 @@ function TerminalShortcutForm({
           data-testid="terminal-special-toggle"
           aria-label="Toggle shortcut list"
           className="h-11 min-w-11 px-0 text-base"
-          onPointerDown={handleTogglePress}
-          onMouseDown={handleTogglePress}
-          onTouchStart={handleTogglePress}
+          onClick={handleTogglePress}
         >
           {isDropdownOpen ? "▴" : "▾"}
         </Button>
@@ -401,9 +397,7 @@ function TerminalShortcutForm({
                 key={preset}
                 type="button"
                 className="w-full rounded-sm px-2 py-2 text-left text-sm hover:bg-accent"
-                onPointerDown={(event) => handlePresetPress(event, preset)}
-                onMouseDown={(event) => handlePresetPress(event, preset)}
-                onTouchStart={(event) => handlePresetPress(event, preset)}
+                onClick={() => handlePresetPress(preset)}
               >
                 {preset}
               </button>
