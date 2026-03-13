@@ -164,6 +164,77 @@ describe("createTerminalRuntime", () => {
     expect(runtime.getBacklogSnapshot()).toEqual(["first\nsecond", "third\rfourth"])
   })
 
+  it("strips split OSC color replies across multiple chunks", () => {
+    const { adapter, emit } = createTestAdapter()
+    const runtime = createTerminalRuntime(adapter)
+
+    const chunks: string[] = []
+    runtime.subscribe((chunk) => chunks.push(chunk))
+
+    emit("before\u001b]10;rgb:aa")
+    emit("/bb")
+    emit("/cc\u0007after")
+
+    expect(chunks).toEqual(["before", "after"])
+    expect(runtime.getBacklogSnapshot()).toEqual(["before", "after"])
+  })
+
+  it("strips split generic OSC sequences across multiple chunks", () => {
+    const { adapter, emit } = createTestAdapter()
+    const runtime = createTerminalRuntime(adapter)
+
+    const chunks: string[] = []
+    runtime.subscribe((chunk) => chunks.push(chunk))
+
+    emit("before\u001b]633;P;IsWindows=False")
+    emit("\u0007after")
+
+    expect(chunks).toEqual(["before", "after"])
+    expect(runtime.getBacklogSnapshot()).toEqual(["before", "after"])
+  })
+
+  it("preserves ANSI CSI color/style sequences", () => {
+    const { adapter, emit } = createTestAdapter()
+    const runtime = createTerminalRuntime(adapter)
+
+    const chunks: string[] = []
+    runtime.subscribe((chunk) => chunks.push(chunk))
+
+    emit("\u001b[31mred\u001b[0m")
+    emit("\u001b[1mbold\u001b[22m")
+
+    expect(chunks).toEqual(["\u001b[31mred\u001b[0m", "\u001b[1mbold\u001b[22m"])
+    expect(runtime.getBacklogSnapshot()).toEqual(["\u001b[31mred\u001b[0m", "\u001b[1mbold\u001b[22m"])
+  })
+
+  it("strips stray percent lines when percent and newline are split", () => {
+    const { adapter, emit } = createTestAdapter()
+    const runtime = createTerminalRuntime(adapter)
+
+    const chunks: string[] = []
+    runtime.subscribe((chunk) => chunks.push(chunk))
+
+    emit("alpha\n%")
+    emit("\nbeta")
+
+    expect(chunks).toEqual(["alpha\n", "\nbeta"])
+    expect(runtime.getBacklogSnapshot()).toEqual(["alpha\n", "\nbeta"])
+  })
+
+  it("does not over-strip normal percent content", () => {
+    const { adapter, emit } = createTestAdapter()
+    const runtime = createTerminalRuntime(adapter)
+
+    const chunks: string[] = []
+    runtime.subscribe((chunk) => chunks.push(chunk))
+
+    emit("progress 100% complete")
+    emit("\npath%value")
+
+    expect(chunks).toEqual(["progress 100% complete", "\npath%value"])
+    expect(runtime.getBacklogSnapshot()).toEqual(["progress 100% complete", "\npath%value"])
+  })
+
   it("calls close subscribers when onExit occurs", () => {
     const { adapter, emitExit } = createTestAdapter()
     const runtime = createTerminalRuntime(adapter)

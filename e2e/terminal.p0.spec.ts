@@ -1,18 +1,39 @@
-import { expect, test } from "@playwright/test"
+import { expect, test, type Page } from "@playwright/test"
+
+async function submitTerminalInput(page: Page) {
+  const submitButton = page.getByTestId("terminal-submit")
+  if (await submitButton.isVisible()) {
+    await submitButton.click()
+    return
+  }
+
+  await page.getByTestId("terminal-input").press("Enter")
+}
 
 test.describe("P0 terminal flow", () => {
-  test("renders the default terminal view", async ({ page }) => {
+  test("renders the default terminal view", async ({ page, isMobile }) => {
     await page.goto("/")
 
     await expect(page.getByTestId("terminal-page")).toBeVisible()
     await expect(page.getByTestId("terminal-viewport")).toBeVisible()
-    await expect(page.getByTestId("terminal-input")).toBeVisible()
-    await expect(page.getByTestId("terminal-submit")).toBeVisible()
-    await expect(page.getByTestId("terminal-submit")).toHaveText("↵")
-    await expect(page.getByTestId("terminal-special-preset")).toBeVisible()
-    await expect(page.getByTestId("terminal-skill-toggle")).toBeVisible()
-    await expect(page.getByTestId("terminal-special-submit")).toBeVisible()
-    await expect(page.getByTestId("terminal-add")).toBeVisible()
+
+    if (isMobile) {
+      await expect(page.getByTestId("terminal-input")).toBeVisible()
+      await expect(page.getByTestId("terminal-submit")).toBeVisible()
+      await expect(page.getByTestId("terminal-submit")).toHaveText("↵")
+      await expect(page.getByTestId("terminal-special-preset")).toBeVisible()
+      await expect(page.getByTestId("terminal-skill-toggle")).toBeVisible()
+      await expect(page.getByTestId("terminal-special-submit")).toBeVisible()
+      await expect(page.getByTestId("terminal-add")).toBeVisible()
+    } else {
+      await expect(page.getByTestId("terminal-input")).toBeHidden()
+      await expect(page.getByTestId("terminal-submit")).toBeHidden()
+      await expect(page.getByTestId("terminal-special-preset")).toBeHidden()
+      await expect(page.getByTestId("terminal-skill-toggle")).toBeHidden()
+      await expect(page.getByTestId("terminal-special-submit")).toBeHidden()
+      await expect(page.getByTestId("terminal-add")).toBeVisible()
+      await expect(page.getByTestId("terminal-active-label")).toBeVisible()
+    }
   })
 
   test("adds a terminal with + and switches to it", async ({ page }) => {
@@ -46,7 +67,7 @@ test.describe("P0 terminal flow", () => {
   })
 
   test("sends input with the active terminalId", async ({ page }) => {
-    const requests: Array<{ data: string; terminalId?: string }> = []
+        const requests: Array<{ data: string; terminalId?: string }> = []
 
     await page.route("**/api/terminal/input/text", async (route) => {
       const request = route.request()
@@ -60,7 +81,7 @@ test.describe("P0 terminal flow", () => {
 
     const input = page.getByTestId("terminal-input")
     await input.fill("echo e2e-ok")
-    await page.getByTestId("terminal-submit").click()
+    await submitTerminalInput(page)
 
     await expect(input).toHaveValue("")
     await expect.poll(() => requests.some((request) => request.data === "echo e2e-ok\r")).toBe(true)
@@ -70,7 +91,7 @@ test.describe("P0 terminal flow", () => {
   })
 
   test("sends enter when input is empty", async ({ page }) => {
-    const requests: Array<{ data: string; terminalId?: string }> = []
+        const requests: Array<{ data: string; terminalId?: string }> = []
 
     await page.route("**/api/terminal/input/text", async (route) => {
       const request = route.request()
@@ -81,13 +102,13 @@ test.describe("P0 terminal flow", () => {
 
     await page.goto("/")
 
-    await page.getByTestId("terminal-submit").click()
+    await submitTerminalInput(page)
 
     await expect.poll(() => requests.some((request) => request.data === "\r")).toBe(true)
   })
 
   test("opens shortcut dropdown, applies preset, and submits sequence", async ({ page }) => {
-    const requests: Array<{ expression: string; terminalId?: string }> = []
+        const requests: Array<{ expression: string; terminalId?: string }> = []
 
     await page.route("**/api/terminal/input/sequence", async (route) => {
       const request = route.request()
@@ -125,7 +146,7 @@ test.describe("P0 terminal flow", () => {
   })
 
   test("opens skill dropdown, sends command, and prioritizes recent command", async ({ page }) => {
-    const requests: Array<{ data: string; terminalId?: string }> = []
+        const requests: Array<{ data: string; terminalId?: string }> = []
 
     await page.route("**/api/terminal/input/text", async (route) => {
       const request = route.request()

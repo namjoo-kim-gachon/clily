@@ -341,7 +341,7 @@ function TerminalViewport({ terminalShellRef, containerRef }: TerminalViewportPr
     <div
       ref={terminalShellRef}
       data-testid="terminal-viewport-shell"
-      className="relative min-h-0 overflow-hidden rounded-xl border border-border/80 bg-card shadow-[0_0_0_1px_var(--color-border)]"
+      className="relative h-full min-h-0 overflow-hidden rounded-xl border border-border/80 bg-card shadow-[0_0_0_1px_var(--color-border)]"
     >
       <div className="h-full p-2">
         <div data-testid="terminal-viewport" ref={containerRef} className="h-full w-full overflow-hidden bg-black" />
@@ -352,6 +352,7 @@ function TerminalViewport({ terminalShellRef, containerRef }: TerminalViewportPr
 
 type TerminalCommandInputFormProps = {
   inputValue: string
+  showSubmitButton: boolean
   onInputValueChange: (value: string) => void
   onSubmit: NonNullable<ComponentProps<"form">["onSubmit"]>
   onSubmitEnterOnly: () => void
@@ -359,12 +360,16 @@ type TerminalCommandInputFormProps = {
 
 function TerminalCommandInputForm({
   inputValue,
+  showSubmitButton,
   onInputValueChange,
   onSubmit,
   onSubmitEnterOnly,
 }: TerminalCommandInputFormProps) {
   return (
-    <form onSubmit={onSubmit} className="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-2">
+    <form
+      onSubmit={onSubmit}
+      className={showSubmitButton ? "grid grid-cols-[minmax(0,1fr)_auto] items-center gap-2" : "grid grid-cols-[minmax(0,1fr)] items-center gap-2"}
+    >
       <input
         data-testid="terminal-input"
         aria-label="terminal-input"
@@ -380,22 +385,24 @@ function TerminalCommandInputForm({
         placeholder="Type a command and press Enter"
         className="h-11 w-full rounded-md border border-input bg-background px-3 text-base outline-none focus-visible:border-ring focus-visible:ring-2 focus-visible:ring-ring/40"
       />
-      <Button
-        variant="outline"
-        data-testid="terminal-submit"
-        aria-label="terminal-submit"
-        type="submit"
-        className="h-11 w-11 px-0 text-base"
-        onClick={(event) => {
-          if (inputValue) {
-            return
-          }
-          event.preventDefault()
-          onSubmitEnterOnly()
-        }}
-      >
-        ↵
-      </Button>
+      {showSubmitButton ? (
+        <Button
+          variant="outline"
+          data-testid="terminal-submit"
+          aria-label="terminal-submit"
+          type="submit"
+          className="h-11 w-11 px-0 text-base"
+          onClick={(event) => {
+            if (inputValue) {
+              return
+            }
+            event.preventDefault()
+            onSubmitEnterOnly()
+          }}
+        >
+          ↵
+        </Button>
+      ) : null}
     </form>
   )
 }
@@ -883,7 +890,7 @@ function useTerminalRuntimeConnection({
         if (visualViewport) {
           visualViewport.removeEventListener("resize", onVisualViewportResize)
         }
-        terminalInputDisposable.dispose()
+        terminalInputDisposable?.dispose()
         eventSource.close()
         terminal.dispose()
       }
@@ -907,6 +914,7 @@ export function TerminalViewer() {
   const createTerminalLockRef = useRef(false)
   const [inputValue, setInputValue] = useState("")
   const [isCreatingTerminal, setIsCreatingTerminal] = useState(false)
+  const [isMobileEnvironment, setIsMobileEnvironment] = useState(false)
   const [manualShortcutPreset, setManualShortcutPreset] = useState<string | null>(null)
   const [recentSkillCommand, setRecentSkillCommand] = useState<string | null>(null)
   const [isSkillDropdownOpen, setIsSkillDropdownOpen] = useState(false)
@@ -1086,6 +1094,14 @@ export function TerminalViewer() {
       return
     }
 
+    const mobileMediaQuery = window.matchMedia("(hover: none) and (pointer: coarse)")
+    const applyMobileEnvironment = () => {
+      setIsMobileEnvironment(mobileMediaQuery.matches)
+    }
+
+    applyMobileEnvironment()
+    mobileMediaQuery.addEventListener("change", applyMobileEnvironment)
+
     try {
       const storedExpression = window.localStorage.getItem(LAST_MANUAL_SHORTCUT_STORAGE_KEY)
       if (storedExpression) {
@@ -1102,6 +1118,10 @@ export function TerminalViewer() {
       }
     } catch {
       logDebug("failed to load skill command")
+    }
+
+    return () => {
+      mobileMediaQuery.removeEventListener("change", applyMobileEnvironment)
     }
   }, [])
 
@@ -1144,7 +1164,11 @@ export function TerminalViewer() {
   return (
     <div
       data-testid="terminal-page"
-      className="fixed inset-0 box-border grid grid-rows-[auto_minmax(0,1fr)_auto_auto_auto] gap-2 px-[max(0.5rem,env(safe-area-inset-left))] pt-[max(0.5rem,env(safe-area-inset-top))] pr-[max(0.5rem,env(safe-area-inset-right))] pb-[max(0.5rem,env(safe-area-inset-bottom))] sm:gap-3"
+      className={
+        isMobileEnvironment
+          ? "fixed inset-0 box-border grid grid-rows-[auto_minmax(0,1fr)_auto_auto_auto] gap-2 px-[max(0.5rem,env(safe-area-inset-left))] pt-[max(0.5rem,env(safe-area-inset-top))] pr-[max(0.5rem,env(safe-area-inset-right))] pb-[max(0.5rem,env(safe-area-inset-bottom))] sm:gap-3"
+          : "fixed inset-0 box-border grid grid-rows-[auto_minmax(0,1fr)] gap-2 px-[max(0.5rem,env(safe-area-inset-left))] pt-[max(0.5rem,env(safe-area-inset-top))] pr-[max(0.5rem,env(safe-area-inset-right))] pb-[max(0.5rem,env(safe-area-inset-bottom))] h-dvh"
+      }
     >
       <TerminalHeader
         terminalIds={terminalIds}
@@ -1156,26 +1180,31 @@ export function TerminalViewer() {
 
       <TerminalViewport terminalShellRef={terminalShellRef} containerRef={containerRef} />
 
-      <TerminalCommandInputForm
-        inputValue={inputValue}
-        onInputValueChange={setInputValue}
-        onSubmit={onSubmit}
-        onSubmitEnterOnly={onSubmitEnterOnly}
-      />
+      {isMobileEnvironment ? (
+        <>
+          <TerminalCommandInputForm
+            inputValue={inputValue}
+            showSubmitButton={isMobileEnvironment}
+            onInputValueChange={setInputValue}
+            onSubmit={onSubmit}
+            onSubmitEnterOnly={onSubmitEnterOnly}
+          />
 
-      <TerminalShortcutForm
-        expression={specialExpression}
-        isDropdownOpen={isSpecialDropdownOpen}
-        isSkillDropdownOpen={isSkillDropdownOpen}
-        onExpressionChange={onExpressionChange}
-        onToggleDropdown={handleToggleSpecialDropdown}
-        onToggleSkillDropdown={handleToggleSkillDropdown}
-        onSubmit={onSpecialSubmit}
-        onSelectPreset={onSelectPreset}
-        onSelectSkillCommand={handleSelectSkillCommand}
-        manualShortcutPreset={manualShortcutPreset}
-        recentSkillCommand={recentSkillCommand}
-      />
+          <TerminalShortcutForm
+            expression={specialExpression}
+            isDropdownOpen={isSpecialDropdownOpen}
+            isSkillDropdownOpen={isSkillDropdownOpen}
+            onExpressionChange={onExpressionChange}
+            onToggleDropdown={handleToggleSpecialDropdown}
+            onToggleSkillDropdown={handleToggleSkillDropdown}
+            onSubmit={onSpecialSubmit}
+            onSelectPreset={onSelectPreset}
+            onSelectSkillCommand={handleSelectSkillCommand}
+            manualShortcutPreset={manualShortcutPreset}
+            recentSkillCommand={recentSkillCommand}
+          />
+        </>
+      ) : null}
     </div>
   )
 }

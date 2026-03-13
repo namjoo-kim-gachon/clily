@@ -147,17 +147,47 @@ function sleep(ms: number) {
   })
 }
 
-const OSC_COLOR_REPLY_PATTERN = /(?:\u001b|\\)?\](?:10|11|12);rgb:[0-9a-fA-F/]+(?:\u0007|\u001b\\)?/g
+const OSC_SEQUENCE_PATTERN = /(?:\u001b|\\)\][^\u0007\u001b]*(?:\u0007|\u001b\\)/g
 const DEVICE_ATTRIBUTES_REPLY_PATTERN = /(?:\u001b|\\)?\[[?>][0-9;]*c/g
 const ZSH_PROMPT_WRAPPER_PATTERN = /%\{|%\}/g
-const STRAY_PROMPT_PERCENT_LINE_PATTERN = /(^|[\r\n])%\s*(\r?\n|$)/g
+const MAX_SANITIZE_CARRY_CHARS = 512
 
 function sanitizeTerminalOutput(data: string) {
-  return data
-    .replace(OSC_COLOR_REPLY_PATTERN, "")
+  const withoutControlReplies = data
+    .replace(OSC_SEQUENCE_PATTERN, "")
     .replace(DEVICE_ATTRIBUTES_REPLY_PATTERN, "")
     .replace(ZSH_PROMPT_WRAPPER_PATTERN, "")
-    .replace(STRAY_PROMPT_PERCENT_LINE_PATTERN, "$1")
+
+  return withoutControlReplies
+    .replace(/(^|[\r\n])%\s*(\r?\n|\r|$)/g, "$1")
+    .replace(/^%\s*$/g, "")
+}
+
+function extractSanitizeCarryTail(data: string) {
+  const matches = [
+    data.match(/(?:\u001b|\\)?\][^\u0007\u001b]*$/),
+    data.match(/(?:\u001b|\\)?\[[?>][0-9;]*$/),
+    data.match(/(^|[\r\n])%\s*$/),
+  ]
+
+  let carryStart = -1
+  for (const match of matches) {
+    if (!match || typeof match.index !== "number") {
+      continue
+    }
+
+    if (carryStart < 0 || match.index < carryStart) {
+      carryStart = match.index
+    }
+  }
+
+  if (carryStart < 0) {
+    return { output: data, carry: "" }
+  }
+
+  const output = data.slice(0, carryStart)
+  const carry = data.slice(carryStart).slice(-MAX_SANITIZE_CARRY_CHARS)
+  return { output, carry }
 }
 
 function generateTerminalId() {
@@ -179,6 +209,7 @@ export function createTerminalRuntime(
   let lastRows = 40
   let sequenceQueue = Promise.resolve()
   let disposed = false
+  let sanitizeCarry = ""
 
   const appendBacklog = (data: string) => {
     backlog.push(data)
@@ -194,15 +225,19 @@ export function createTerminalRuntime(
   }
 
   const broadcast = (data: string) => {
-    const sanitized = sanitizeTerminalOutput(data)
-    if (!sanitized) {
+    const chunk = `${sanitizeCarry}${data}`
+    const sanitized = sanitizeTerminalOutput(chunk)
+    const { output, carry } = extractSanitizeCarryTail(sanitized)
+    sanitizeCarry = carry
+
+    if (!output) {
       return
     }
 
-    appendBacklog(sanitized)
+    appendBacklog(output)
 
     for (const listener of subscribers) {
-      listener(sanitized)
+      listener(output)
     }
   }
 

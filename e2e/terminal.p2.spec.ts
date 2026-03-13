@@ -1,5 +1,15 @@
 import { expect, test, type Page } from "@playwright/test"
 
+async function submitTerminalInput(page: Page) {
+  const submitButton = page.getByTestId("terminal-submit")
+  if (await submitButton.isVisible()) {
+    await submitButton.click()
+    return
+  }
+
+  await page.getByTestId("terminal-input").press("Enter")
+}
+
 function parseActiveLabel(text: string) {
   const match = text.match(/Terminal\s+(\d+)\s*\/\s*(\d+)/)
   return {
@@ -33,13 +43,18 @@ async function expectNoStandalonePercent(page: Page) {
   }).toBe(false)
 }
 
+async function getTerminalPageHeight(page: Page) {
+  return await page.getByTestId("terminal-page").evaluate((element) => Math.round(element.getBoundingClientRect().height))
+}
+
 test.describe("P2 persistent terminal", () => {
-  test("keeps terminal UI and input sending after reconnect", async ({ page }) => {
+  test("keeps terminal UI and input sending after reconnect", async ({ page, isMobile }) => {
+    test.skip(!isMobile, "runs only on mobile project")
     await page.goto("/")
 
     const input = page.getByTestId("terminal-input")
     await input.fill(`echo reconnect-${Date.now()}`)
-    await page.getByTestId("terminal-submit").click()
+    await submitTerminalInput(page)
     await expect(input).toHaveValue("")
 
     await page.reload()
@@ -48,12 +63,13 @@ test.describe("P2 persistent terminal", () => {
 
     const afterReloadInput = page.getByTestId("terminal-input")
     await afterReloadInput.fill("after-reconnect")
-    await page.getByTestId("terminal-submit").click()
+    await submitTerminalInput(page)
 
     await expect(afterReloadInput).toHaveValue("")
   })
 
-  test("removes the terminal when exit is entered", async ({ page }) => {
+  test("removes the terminal when exit is entered", async ({ page, isMobile }) => {
+    test.skip(!isMobile, "runs only on mobile project")
     let exitedTerminalId = ""
 
     await page.route("**/api/terminal/input/text", async (route) => {
@@ -69,7 +85,7 @@ test.describe("P2 persistent terminal", () => {
 
     const input = page.getByTestId("terminal-input")
     await input.fill("exit")
-    await page.getByTestId("terminal-submit").click()
+    await submitTerminalInput(page)
 
     await expect.poll(() => exitedTerminalId).not.toBe("")
 
@@ -80,12 +96,13 @@ test.describe("P2 persistent terminal", () => {
     }).toBe(false)
   })
 
-  test("keeps one terminal after exit on the last terminal", async ({ page }) => {
+  test("keeps one terminal after exit on the last terminal", async ({ page, isMobile }) => {
+    test.skip(!isMobile, "runs only on mobile project")
     await page.goto("/")
 
     const input = page.getByTestId("terminal-input")
     await input.fill("exit")
-    await page.getByTestId("terminal-submit").click()
+    await submitTerminalInput(page)
 
     await expect.poll(async () => parseActiveLabel((await page.getByTestId("terminal-active-label").textContent()) ?? "").total).toBeGreaterThanOrEqual(1)
     await expect(page.getByTestId("terminal-viewport")).toBeVisible()
@@ -105,7 +122,28 @@ test.describe("P2 persistent terminal", () => {
 
     const input = page.getByTestId("terminal-input")
     await input.fill("printf '%\\n'")
-    await page.getByTestId("terminal-submit").click()
+    await submitTerminalInput(page)
+    await expectNoStandalonePercent(page)
+
+    const heightBeforeFocus = await getTerminalPageHeight(page)
+    await input.focus()
+    await page.waitForTimeout(120)
+    const heightWithFocus = await getTerminalPageHeight(page)
+    expect(Math.abs(heightWithFocus - heightBeforeFocus)).toBeLessThanOrEqual(2)
+
+    await page.evaluate(() => {
+      const active = document.activeElement
+      if (active instanceof HTMLElement) {
+        active.blur()
+      }
+    })
+    await page.waitForTimeout(200)
+
+    const heightAfterBlur = await getTerminalPageHeight(page)
+    expect(Math.abs(heightAfterBlur - heightBeforeFocus)).toBeLessThanOrEqual(2)
+
+    await input.fill("printf '%\\n'")
+    await submitTerminalInput(page)
     await expectNoStandalonePercent(page)
 
     await page.setViewportSize({ width: 852, height: 393 })
@@ -115,7 +153,7 @@ test.describe("P2 persistent terminal", () => {
     await swipeShellHorizontally(page, "right")
 
     await input.fill("printf '%\\n'")
-    await page.getByTestId("terminal-submit").click()
+    await submitTerminalInput(page)
     await expectNoStandalonePercent(page)
 
     await page.setViewportSize({ width: 393, height: 852 })
@@ -124,7 +162,81 @@ test.describe("P2 persistent terminal", () => {
     await swipeShellHorizontally(page, "left")
 
     await input.fill("printf '%\\n'")
-    await page.getByTestId("terminal-submit").click()
+    await submitTerminalInput(page)
     await expectNoStandalonePercent(page)
+  })
+
+  test("sends one idle notification and deduplicates identical state", async ({ page, isMobile }) => {
+    test.skip(isMobile, "runs only on desktop project")
+    test.setTimeout(130_000)
+
+    await page.addInitScript(() => {
+      const notifications: Array<{ title: string; body?: string; tag?: string }> = []
+      ;(window as typeof window & { __idleNotifications?: typeof notifications }).__idleNotifications = notifications
+
+      class MockNotification {
+        static permission: NotificationPermission = "granted"
+
+        static requestPermission() {
+          return Promise.resolve<NotificationPermission>("granted")
+        }
+
+        constructor(title: string, options?: NotificationOptions) {
+          notifications.push({ title, body: options?.body, tag: options?.tag })
+        }
+      }
+
+      Object.defineProperty(window, "Notification", {
+        configurable: true,
+        writable: true,
+        value: MockNotification,
+      })
+    })
+
+    await page.goto("/")
+
+    const input = page.getByTestId("terminal-input")
+    if (await input.isVisible()) {
+      await input.fill("echo idle-check")
+      await submitTerminalInput(page)
+    } else {
+      const viewport = page.getByTestId("terminal-viewport")
+      await viewport.click()
+      await page.keyboard.type("echo idle-check")
+      await page.keyboard.press("Enter")
+    }
+
+    await expect.poll(async () => {
+      return await page.evaluate(() => {
+        return (window as typeof window & { __idleNotifications?: Array<unknown> }).__idleNotifications?.length ?? 0
+      })
+    }).toBe(0)
+
+    await page.waitForTimeout(31_000)
+
+    await expect.poll(async () => {
+      return await page.evaluate(() => {
+        return (window as typeof window & { __idleNotifications?: Array<unknown> }).__idleNotifications?.length ?? 0
+      })
+    }).toBe(1)
+
+    await page.waitForTimeout(31_000)
+
+    await expect.poll(async () => {
+      return await page.evaluate(() => {
+        return (window as typeof window & { __idleNotifications?: Array<unknown> }).__idleNotifications?.length ?? 0
+      })
+    }).toBe(1)
+
+    const viewport = page.viewportSize()
+    await page.setViewportSize({ width: (viewport?.width ?? 1280) - 120, height: viewport?.height ?? 720 })
+
+    await page.waitForTimeout(31_000)
+
+    await expect.poll(async () => {
+      return await page.evaluate(() => {
+        return (window as typeof window & { __idleNotifications?: Array<unknown> }).__idleNotifications?.length ?? 0
+      })
+    }).toBe(2)
   })
 })
