@@ -40,9 +40,9 @@ export type TerminalRuntime = {
 export type TerminalRuntimeManager = {
   createSession: () => string
   listSessions: () => string[]
-  getSessionRuntime: (terminalId?: string) => TerminalRuntime
+  getSessionRuntime: (terminalId?: string) => TerminalRuntime | undefined
   deleteSession: (terminalId: string) => void
-  getDefaultTerminalId: () => string
+  getDefaultTerminalId: () => string | undefined
 }
 
 type CreateTerminalRuntimeOptions = {
@@ -367,7 +367,6 @@ export function createTerminalRuntimeManager(): TerminalRuntimeManager {
 
     sessions.delete(terminalId)
     setDefaultFromExisting()
-    ensureDefaultSession()
   }
 
   const createSession = () => {
@@ -393,14 +392,17 @@ export function createTerminalRuntimeManager(): TerminalRuntimeManager {
   }
 
   const getSessionRuntime = (terminalId?: string) => {
-    ensureDefaultSession()
-
-    if (terminalId && sessions.has(terminalId)) {
-      return sessions.get(terminalId) as TerminalRuntime
+    if (terminalId) {
+      return sessions.get(terminalId)
     }
 
-    const fallbackId = defaultTerminalId ?? sessions.keys().next().value
-    return sessions.get(fallbackId as string) as TerminalRuntime
+    ensureDefaultSession()
+
+    if (!defaultTerminalId) {
+      return undefined
+    }
+
+    return sessions.get(defaultTerminalId)
   }
 
   const deleteSession = (terminalId: string) => {
@@ -413,7 +415,6 @@ export function createTerminalRuntimeManager(): TerminalRuntimeManager {
     runtime.dispose()
 
     setDefaultFromExisting()
-    ensureDefaultSession()
   }
 
   ensureDefaultSession()
@@ -425,7 +426,7 @@ export function createTerminalRuntimeManager(): TerminalRuntimeManager {
     deleteSession,
     getDefaultTerminalId: () => {
       ensureDefaultSession()
-      return defaultTerminalId as string
+      return defaultTerminalId ?? undefined
     },
   }
 }

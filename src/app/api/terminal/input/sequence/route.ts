@@ -19,9 +19,12 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: parsed.error }, { status: 400 })
   }
 
-  await getTerminalRuntime()
-    .getSessionRuntime(payload.terminalId)
-    .writeSequence(parsed.steps, { stepDelayMs: DEFAULT_STEP_DELAY_MS })
+  const runtime = getTerminalRuntime().getSessionRuntime(payload.terminalId)
+  if (!runtime) {
+    return NextResponse.json({ error: "terminal not found" }, { status: 404 })
+  }
+
+  await runtime.writeSequence(parsed.steps, { stepDelayMs: DEFAULT_STEP_DELAY_MS })
 
   return new Response(null, { status: 204 })
 }

@@ -276,4 +276,10 @@ describe("createTerminalRuntimeManager", () => {
     const sessions = manager.listSessions()
     expect(sessions.length).toBe(1)
   })
+
+  it("returns undefined for missing terminal id", () => {
+    const manager = createTerminalRuntimeManager()
+
+    expect(manager.getSessionRuntime("terminal-does-not-exist")).toBeUndefined()
+  })
 })

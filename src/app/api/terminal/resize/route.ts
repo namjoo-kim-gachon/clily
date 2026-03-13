@@ -12,7 +12,12 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: "invalid payload" }, { status: 400 })
     }
 
-    getTerminalRuntime().getSessionRuntime(payload.terminalId).resize(payload.cols, payload.rows)
+    const runtime = getTerminalRuntime().getSessionRuntime(payload.terminalId)
+    if (!runtime) {
+      return NextResponse.json({ error: "terminal not found" }, { status: 404 })
+    }
+
+    runtime.resize(payload.cols, payload.rows)
 
     return new Response(null, { status: 204 })
   } catch (error) {

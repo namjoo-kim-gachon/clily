@@ -49,6 +49,7 @@ const LAST_SKILL_COMMAND_STORAGE_KEY = "terminal:last-skill-command"
 const SKILL_COMMAND_PRESETS = ["/clear", "/resume", "/exit", "/simplify", "/context", "/model"] as const
 const IDLE_NOTIFICATION_DELAY_MS = 30_000
 const IDLE_CHECK_INTERVAL_MS = 1_000
+const TERMINAL_SCROLLBACK_LINES = 1024
 
 function logDebug(message: string, meta?: Record<string, unknown>) {
   if (!DEBUG_MODE) {
@@ -728,24 +729,24 @@ function useTerminalRuntimeConnection({
 
       const terminal = new Terminal({
         cursorBlink: true,
-        scrollback: 200000,
+        scrollback: TERMINAL_SCROLLBACK_LINES,
         convertEol: true,
         fontSize: 14,
         theme: {
           background: "#000000",
         },
       })
-
       const fitAddon = new FitAddon()
 
       terminal.loadAddon(fitAddon)
       terminal.open(containerRef.current)
       fitAddon.fit()
 
-      const eventSource = new EventSource(`/api/terminal/stream?terminalId=${encodeURIComponent(activeTerminalId)}`)
+      const streamUrl = `/api/terminal/stream?terminalId=${encodeURIComponent(activeTerminalId)}`
+      const eventSource = new EventSource(streamUrl)
       eventSourceRef.current = eventSource
 
-      logDebug("connect eventsource", { url: "/api/terminal/stream", terminalId: activeTerminalId })
+      logDebug("connect eventsource", { url: streamUrl, terminalId: activeTerminalId })
 
       eventSource.addEventListener("open", () => {
         logDebug("eventsource opened", { terminalId: activeTerminalId })

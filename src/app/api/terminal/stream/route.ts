@@ -18,6 +18,10 @@ export async function GET(request: Request) {
   const terminalId = searchParams.get("terminalId") ?? undefined
   const runtime = runtimeManager.getSessionRuntime(terminalId)
 
+  if (!runtime) {
+    return new Response("terminal not found", { status: 404 })
+  }
+
   const stream = new ReadableStream<Uint8Array>({
     start(controller) {
       let closed = false
