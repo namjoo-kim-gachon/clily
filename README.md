@@ -4,6 +4,10 @@
 [![Test Workflow](https://github.com/namjoo-kim-gachon/clily/actions/workflows/test.yml/badge.svg?branch=main)](https://github.com/namjoo-kim-gachon/clily/actions/workflows/test.yml)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](./LICENSE)
 
+<p align="center">
+  <img src="src/app/icon.svg" alt="Clily Icon" width="120" />
+</p>
+
 Use your browser as a mobile-friendly terminal client while keeping terminal sessions alive on the server.
 
 ## What You Can Do
@@ -24,13 +28,7 @@ Use your browser as a mobile-friendly terminal client while keeping terminal ses
 npm install
 ```
 
-### 2) Create environment file
-
-```bash
-cp .env.example .env
-```
-
-### 3) Run the app
+### 2) Run the app
 
 ```bash
 npm run dev
