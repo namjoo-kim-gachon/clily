@@ -150,7 +150,7 @@ function sleep(ms: number) {
 const OSC_COLOR_REPLY_PATTERN = /(?:\u001b|\\)?\](?:10|11|12);rgb:[0-9a-fA-F/]+(?:\u0007|\u001b\\)?/g
 const DEVICE_ATTRIBUTES_REPLY_PATTERN = /(?:\u001b|\\)?\[[?>][0-9;]*c/g
 const ZSH_PROMPT_WRAPPER_PATTERN = /%\{|%\}/g
-const STRAY_PROMPT_PERCENT_LINE_PATTERN = /(^|\n)%\s*(\r?\n)/g
+const STRAY_PROMPT_PERCENT_LINE_PATTERN = /(^|[\r\n])%\s*(\r?\n|$)/g
 
 function sanitizeTerminalOutput(data: string) {
   return data

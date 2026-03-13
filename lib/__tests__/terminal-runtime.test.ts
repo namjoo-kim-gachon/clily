@@ -149,6 +149,21 @@ describe("createTerminalRuntime", () => {
     expect(runtime.getBacklogSnapshot()).toEqual(["chunk-1", "chunk-2"])
   })
 
+  it("strips stray % prompt noise across newline variants", () => {
+    const { adapter, emit } = createTestAdapter()
+    const runtime = createTerminalRuntime(adapter)
+
+    const chunks: string[] = []
+    runtime.subscribe((chunk) => chunks.push(chunk))
+
+    emit("first\n%\nsecond")
+    emit("third\r%\r\nfourth")
+    emit("%")
+
+    expect(chunks).toEqual(["first\nsecond", "third\rfourth"])
+    expect(runtime.getBacklogSnapshot()).toEqual(["first\nsecond", "third\rfourth"])
+  })
+
   it("calls close subscribers when onExit occurs", () => {
     const { adapter, emitExit } = createTestAdapter()
     const runtime = createTerminalRuntime(adapter)

@@ -20,32 +20,86 @@ export async function GET(request: Request) {
 
   const stream = new ReadableStream<Uint8Array>({
     start(controller) {
-      for (const chunk of runtime.getBacklogSnapshot()) {
-        controller.enqueue(encoder.encode(sseEvent("output", encodeTerminalOutputEvent(chunk))))
+      let closed = false
+      let keepalive: ReturnType<typeof setInterval> | null = null
+
+      const safeEnqueue = (payload: string, reason: string) => {
+        if (closed) {
+          return false
+        }
+
+        try {
+          controller.enqueue(encoder.encode(payload))
+          return true
+        } catch (error) {
+          console.error("[terminal-stream] enqueue failed", { terminalId, reason, error })
+          return false
+        }
       }
 
       const unsubscribe = runtime.subscribe((data) => {
-        controller.enqueue(encoder.encode(sseEvent("output", encodeTerminalOutputEvent(data))))
+        const ok = safeEnqueue(sseEvent("output", encodeTerminalOutputEvent(data)), "runtime output")
+        if (!ok) {
+          cleanup("output enqueue failed")
+        }
       })
 
       const unsubscribeClose = runtime.subscribeClose(() => {
-        controller.enqueue(encoder.encode(sseEvent("closed", JSON.stringify({ type: "terminal.closed" }))))
-        clearInterval(keepalive)
-        unsubscribe()
-        unsubscribeClose()
-        controller.close()
+        safeEnqueue(sseEvent("closed", JSON.stringify({ type: "terminal.closed" })), "runtime close")
+        cleanup("runtime closed")
       })
 
-      const keepalive = setInterval(() => {
-        controller.enqueue(encoder.encode(`: keepalive ${Date.now()}\n\n`))
-      }, KEEPALIVE_INTERVAL_MS)
-
       const abortHandler = () => {
-        clearInterval(keepalive)
-        unsubscribe()
-        unsubscribeClose()
-        controller.close()
+        cleanup("request aborted")
       }
+
+      const cleanup = (reason: string) => {
+        if (closed) {
+          return
+        }
+
+        closed = true
+
+        if (keepalive) {
+          clearInterval(keepalive)
+          keepalive = null
+        }
+
+        request.signal.removeEventListener("abort", abortHandler)
+
+        try {
+          unsubscribe()
+        } catch (error) {
+          console.error("[terminal-stream] unsubscribe failed", { terminalId, reason, error })
+        }
+
+        try {
+          unsubscribeClose()
+        } catch (error) {
+          console.error("[terminal-stream] close unsubscribe failed", { terminalId, reason, error })
+        }
+
+        try {
+          controller.close()
+        } catch (error) {
+          console.error("[terminal-stream] close failed", { terminalId, reason, error })
+        }
+      }
+
+      for (const chunk of runtime.getBacklogSnapshot()) {
+        const ok = safeEnqueue(sseEvent("output", encodeTerminalOutputEvent(chunk)), "backlog replay")
+        if (!ok) {
+          cleanup("backlog enqueue failed")
+          return
+        }
+      }
+
+      keepalive = setInterval(() => {
+        const ok = safeEnqueue(`: keepalive ${Date.now()}\n\n`, "keepalive")
+        if (!ok) {
+          cleanup("keepalive enqueue failed")
+        }
+      }, KEEPALIVE_INTERVAL_MS)
 
       request.signal.addEventListener("abort", abortHandler, { once: true })
     },

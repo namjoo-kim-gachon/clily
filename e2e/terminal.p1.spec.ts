@@ -48,6 +48,22 @@ test.describe("P1 terminal UI simplification", () => {
     await expect.poll(async () => parseActiveLabel((await label.textContent()) ?? "").active).toBe(1)
   })
 
+  test("creates only one terminal on rapid add taps", async ({ page }) => {
+    await page.goto("/")
+
+    const label = page.getByTestId("terminal-active-label")
+    await expect.poll(async () => parseActiveLabel((await label.textContent()) ?? "").total).toBeGreaterThan(0)
+
+    const before = parseActiveLabel((await label.textContent()) ?? "")
+
+    await page.getByTestId("terminal-add").click({ clickCount: 2, delay: 10 })
+
+    await expect.poll(async () => parseActiveLabel((await label.textContent()) ?? "")).toEqual({
+      active: before.total + 1,
+      total: before.total + 1,
+    })
+  })
+
   test("switches terminals with left/right buttons on desktop", async ({ page, isMobile }) => {
     test.skip(isMobile, "runs arrow-button transition check only in desktop projects")
 

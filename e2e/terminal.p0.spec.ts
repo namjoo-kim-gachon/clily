@@ -68,7 +68,7 @@ test.describe("P0 terminal flow", () => {
     expect(matched?.terminalId).toBeTruthy()
   })
 
-  test("runs special input after selecting from the dropdown", async ({ page }) => {
+  test("opens shortcut dropdown, applies preset, and submits sequence", async ({ page }) => {
     const requests: Array<{ expression: string; terminalId?: string }> = []
 
     await page.route("**/api/terminal/input/sequence", async (route) => {
@@ -88,15 +88,21 @@ test.describe("P0 terminal flow", () => {
     }).toBeGreaterThan(0)
 
     const specialInput = page.getByTestId("terminal-special-preset")
+    const specialToggle = page.getByTestId("terminal-special-toggle")
+    const specialDropdown = page.getByTestId("terminal-special-dropdown")
 
-    await specialInput.fill("ctrl+b")
-    await expect(specialInput).toHaveValue("ctrl+b")
+    await specialToggle.click()
+    await expect(specialDropdown).toBeVisible()
+
+    await specialDropdown.getByRole("button", { name: "CTRL+B" }).click()
+    await expect(specialInput).toHaveValue("CTRL+B")
+    expect(requests).toHaveLength(0)
 
     await page.getByTestId("terminal-special-submit").click()
     await expect(specialInput).toHaveValue("")
-    await expect.poll(() => requests.some((request) => request.expression === "ctrl+b")).toBe(true)
-    const matched = requests.find((request) => request.expression === "ctrl+b")
-    expect(matched?.expression).toBe("ctrl+b")
+    await expect.poll(() => requests.some((request) => request.expression === "CTRL+B")).toBe(true)
+    const matched = requests.find((request) => request.expression === "CTRL+B")
+    expect(matched?.expression).toBe("CTRL+B")
     expect(matched?.terminalId).toBeTruthy()
   })
 
