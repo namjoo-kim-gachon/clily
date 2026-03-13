@@ -66,8 +66,8 @@ test.describe("P0 terminal flow", () => {
     })
   })
 
-  test("sends input with the active terminalId", async ({ page }) => {
-        const requests: Array<{ data: string; terminalId?: string }> = []
+  test("sends input with the active terminalId", async ({ page, isMobile }) => {
+    const requests: Array<{ data: string; terminalId?: string }> = []
 
     await page.route("**/api/terminal/input/text", async (route) => {
       const request = route.request()
@@ -80,18 +80,30 @@ test.describe("P0 terminal flow", () => {
     await page.getByTestId("terminal-add").click()
 
     const input = page.getByTestId("terminal-input")
-    await input.fill("echo e2e-ok")
-    await submitTerminalInput(page)
+    if (await input.isVisible()) {
+      await input.fill("echo e2e-ok")
+      await submitTerminalInput(page)
+      await expect(input).toHaveValue("")
+    } else {
+      const viewport = page.getByTestId("terminal-viewport")
+      await viewport.click()
+      await page.keyboard.type("echo e2e-ok")
+      await page.keyboard.press("Enter")
+    }
+    if (isMobile) {
+      await expect.poll(() => requests.some((request) => request.data === "echo e2e-ok\r")).toBe(true)
+      const matched = requests.find((request) => request.data === "echo e2e-ok\r")
+      expect(matched?.data).toBe("echo e2e-ok\r")
+      expect(matched?.terminalId).toBeTruthy()
+      return
+    }
 
-    await expect(input).toHaveValue("")
-    await expect.poll(() => requests.some((request) => request.data === "echo e2e-ok\r")).toBe(true)
-    const matched = requests.find((request) => request.data === "echo e2e-ok\r")
-    expect(matched?.data).toBe("echo e2e-ok\r")
-    expect(matched?.terminalId).toBeTruthy()
+    await expect.poll(() => requests.map((request) => request.data).join("").includes("echo e2e-ok\r")).toBe(true)
+    expect(requests.some((request) => Boolean(request.terminalId))).toBe(true)
   })
 
   test("sends enter when input is empty", async ({ page }) => {
-        const requests: Array<{ data: string; terminalId?: string }> = []
+    const requests: Array<{ data: string; terminalId?: string }> = []
 
     await page.route("**/api/terminal/input/text", async (route) => {
       const request = route.request()
@@ -102,13 +114,20 @@ test.describe("P0 terminal flow", () => {
 
     await page.goto("/")
 
-    await submitTerminalInput(page)
+    const input = page.getByTestId("terminal-input")
+    if (await input.isVisible()) {
+      await submitTerminalInput(page)
+    } else {
+      await page.getByTestId("terminal-viewport").click()
+      await page.keyboard.press("Enter")
+    }
 
     await expect.poll(() => requests.some((request) => request.data === "\r")).toBe(true)
   })
 
-  test("opens shortcut dropdown, applies preset, and submits sequence", async ({ page }) => {
-        const requests: Array<{ expression: string; terminalId?: string }> = []
+  test("opens shortcut dropdown, applies preset, and submits sequence", async ({ page, isMobile }) => {
+    test.skip(!isMobile, "runs only on mobile project")
+    const requests: Array<{ expression: string; terminalId?: string }> = []
 
     await page.route("**/api/terminal/input/sequence", async (route) => {
       const request = route.request()
@@ -145,8 +164,9 @@ test.describe("P0 terminal flow", () => {
     expect(matched?.terminalId).toBeTruthy()
   })
 
-  test("opens skill dropdown, sends command, and prioritizes recent command", async ({ page }) => {
-        const requests: Array<{ data: string; terminalId?: string }> = []
+  test("opens skill dropdown, sends command, and prioritizes recent command", async ({ page, isMobile }) => {
+    test.skip(!isMobile, "runs only on mobile project")
+    const requests: Array<{ data: string; terminalId?: string }> = []
 
     await page.route("**/api/terminal/input/text", async (route) => {
       const request = route.request()

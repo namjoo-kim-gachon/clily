@@ -3,7 +3,7 @@ import { config as loadEnv } from "dotenv"
 
 loadEnv({ path: ".env" })
 
-const appPort = Number(process.env.PORT ?? 3100)
+const appPort = 3100
 const baseURL = `http://127.0.0.1:${appPort}`
 
 export default defineConfig({
@@ -22,7 +22,7 @@ export default defineConfig({
     video: "retain-on-failure",
   },
   webServer: {
-    command: `PORT=${appPort} TERMINAL_E2E_MODE=mock npm run dev`,
+    command: `TERMINAL_E2E_MODE=mock npm run dev -- --port ${appPort}`,
     url: baseURL,
     reuseExistingServer: !process.env.CI,
     timeout: 120_000,

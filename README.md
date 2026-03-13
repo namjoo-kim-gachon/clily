@@ -1,5 +1,9 @@
 # Clily Terminal Viewer
 
+[![Build Workflow](https://github.com/namjoo-kim-gachon/clily/actions/workflows/build.yml/badge.svg?branch=main)](https://github.com/namjoo-kim-gachon/clily/actions/workflows/build.yml)
+[![Test Workflow](https://github.com/namjoo-kim-gachon/clily/actions/workflows/test.yml/badge.svg?branch=main)](https://github.com/namjoo-kim-gachon/clily/actions/workflows/test.yml)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](./LICENSE)
+
 Use your browser as a mobile-friendly terminal client while keeping terminal sessions alive on the server.
 
 ## What You Can Do
@@ -9,6 +13,8 @@ Use your browser as a mobile-friendly terminal client while keeping terminal ses
 - Send normal commands and shortcut sequences from the same UI.
 - Restore recent terminal output after reconnect.
 - Use swipe navigation on mobile and button navigation on desktop.
+- Install as a PWA (standalone app experience) on supported browsers.
+- Receive browser notifications when terminal output stays idle for 30 seconds.
 
 ## Quick Start
 
@@ -24,12 +30,6 @@ npm install
 cp .env.example .env
 ```
 
-Default:
-
-```env
-PORT=3001
-```
-
 ### 3) Run the app
 
 ```bash
@@ -38,7 +38,7 @@ npm run dev
 
 Open:
 
-- `http://localhost:3001` (or the port you set in `.env`)
+- `http://localhost:3000` (default Next.js dev port)
 
 ## Core Usage Flow
 
@@ -51,24 +51,6 @@ Open:
 5. For shortcut input (for example `Ctrl+B D`), use the shortcut field and submit.
 6. If you reload or reconnect, the app restores session state and recent output.
 
-## Configuration
-
-Set values in `.env`.
-
-- `PORT`
-  Next.js development server port.
-
-- `TERMINAL_E2E_MODE=mock` (optional)
-  Runs with a mock terminal runtime for deterministic E2E tests.
-
-- `TERMINAL_BACKLOG_MAX_CHARS` (optional)
-  Maximum number of terminal output characters kept for replay.
-
-- `TERMINAL_DEBUG=1` (optional)
-  Enables server-side terminal runtime debug logs.
-
-- `NEXT_PUBLIC_TERMINAL_DEBUG=1` (optional)
-  Enables client-side debug logs in the browser console.
 
 ## Troubleshooting
 
@@ -81,15 +63,6 @@ Try:
 - Running from a local terminal session.
 - Verifying shell availability and permissions on macOS/Linux.
 
-### Reconnect did not show expected output
-
-- Check whether backlog retention is large enough (`TERMINAL_BACKLOG_MAX_CHARS`).
-- Enable debug logs (`TERMINAL_DEBUG=1`, `NEXT_PUBLIC_TERMINAL_DEBUG=1`) and inspect server/browser logs.
-
-### E2E tests behave differently from local runtime
-
-- Confirm whether you are running mock mode (`TERMINAL_E2E_MODE=mock`).
-- Remember that E2E is designed for deterministic behavior and may not mirror full local shell behavior.
 
 ## FAQ
 
@@ -108,6 +81,14 @@ You can send key-like expressions such as `Ctrl+B`, `Shift+Tab`, arrow keys, `Es
 ### Is this production-ready with persistent storage?
 
 Not yet. Current behavior focuses on in-memory session management during server runtime.
+
+### Does it support PWA install?
+
+Yes. The app includes a web manifest (`/manifest.webmanifest`) and registers a service worker (`/sw.js`) so you can install it as a standalone app on supported browsers.
+
+### How do idle notifications work?
+
+The app requests browser notification permission and sends a notification when the active terminal view has no visible changes for 30 seconds. Identical idle states are deduplicated to avoid repeated alerts.
 
 ## For Contributors
 
