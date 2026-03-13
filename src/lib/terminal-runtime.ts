@@ -70,11 +70,14 @@ function resolveShell() {
 }
 
 function createTerminalAdapter(shell: string): TerminalAdapter {
+  const terminalEnv = { ...process.env }
+  delete terminalEnv.npm_config_prefix
+
   const pty = spawnPty(shell, [], {
     cols: 120,
     rows: 40,
     cwd: process.cwd(),
-    env: process.env,
+    env: terminalEnv,
   })
 
   logDebug("terminal adapter created", { adapter: "node-pty", shell })
