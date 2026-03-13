@@ -10,6 +10,7 @@ test.describe("P0 terminal flow", () => {
     await expect(page.getByTestId("terminal-submit")).toBeVisible()
     await expect(page.getByTestId("terminal-submit")).toHaveText("↵")
     await expect(page.getByTestId("terminal-special-preset")).toBeVisible()
+    await expect(page.getByTestId("terminal-skill-toggle")).toBeVisible()
     await expect(page.getByTestId("terminal-special-submit")).toBeVisible()
     await expect(page.getByTestId("terminal-add")).toBeVisible()
   })
@@ -68,6 +69,23 @@ test.describe("P0 terminal flow", () => {
     expect(matched?.terminalId).toBeTruthy()
   })
 
+  test("sends enter when input is empty", async ({ page }) => {
+    const requests: Array<{ data: string; terminalId?: string }> = []
+
+    await page.route("**/api/terminal/input/text", async (route) => {
+      const request = route.request()
+      const body = request.postDataJSON() as { data?: string; terminalId?: string }
+      requests.push({ data: body.data ?? "", terminalId: body.terminalId })
+      await route.fulfill({ status: 204, body: "" })
+    })
+
+    await page.goto("/")
+
+    await page.getByTestId("terminal-submit").click()
+
+    await expect.poll(() => requests.some((request) => request.data === "\r")).toBe(true)
+  })
+
   test("opens shortcut dropdown, applies preset, and submits sequence", async ({ page }) => {
     const requests: Array<{ expression: string; terminalId?: string }> = []
 
@@ -104,6 +122,57 @@ test.describe("P0 terminal flow", () => {
     const matched = requests.find((request) => request.expression === "CTRL+B")
     expect(matched?.expression).toBe("CTRL+B")
     expect(matched?.terminalId).toBeTruthy()
+  })
+
+  test("opens skill dropdown, sends command, and prioritizes recent command", async ({ page }) => {
+    const requests: Array<{ data: string; terminalId?: string }> = []
+
+    await page.route("**/api/terminal/input/text", async (route) => {
+      const request = route.request()
+      const body = request.postDataJSON() as { data?: string; terminalId?: string }
+      requests.push({ data: body.data ?? "", terminalId: body.terminalId })
+      await route.fulfill({ status: 204, body: "" })
+    })
+
+    await page.goto("/")
+    await page.evaluate(() => {
+      window.localStorage.setItem("terminal:last-skill-command", "/foo")
+    })
+    await page.reload()
+
+    const skillToggle = page.getByTestId("terminal-skill-toggle")
+    const skillDropdown = page.getByTestId("terminal-skill-dropdown")
+
+    await skillToggle.dispatchEvent("click")
+    await expect(skillDropdown).toBeVisible()
+
+    const skillButtons = skillDropdown.getByRole("button")
+    await expect(skillButtons).toHaveCount(7)
+    await expect(skillButtons.nth(0)).toHaveText("/foo")
+    await expect(skillButtons.nth(1)).toHaveText("/clear")
+    await expect(skillButtons.nth(2)).toHaveText("/resume")
+    await expect(skillButtons.nth(3)).toHaveText("/exit")
+    await expect(skillButtons.nth(4)).toHaveText("/simplify")
+    await expect(skillButtons.nth(5)).toHaveText("/context")
+    await expect(skillButtons.nth(6)).toHaveText("/model")
+
+    await skillDropdown.getByRole("button", { name: "/clear" }).click()
+    await expect(skillDropdown).toBeHidden()
+
+    await expect.poll(() => requests.some((request) => request.data === "/clear\r")).toBe(true)
+    const matched = requests.find((request) => request.data === "/clear\r")
+    expect(matched?.terminalId).toBeTruthy()
+
+    await skillToggle.dispatchEvent("click")
+    await expect(skillDropdown).toBeVisible()
+
+    const uniqueClearButtons = skillDropdown.getByRole("button", { name: "/clear", exact: true })
+    await expect(uniqueClearButtons).toHaveCount(1)
+    await expect(skillDropdown.getByRole("button").nth(0)).toHaveText("/clear")
+
+    await page.reload()
+    await skillToggle.dispatchEvent("click")
+    await expect(page.getByTestId("terminal-skill-dropdown").getByRole("button").nth(0)).toHaveText("/clear")
   })
 
 })

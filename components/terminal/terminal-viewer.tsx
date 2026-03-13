@@ -45,6 +45,10 @@ const SPECIAL_INPUT_PRESETS = [
 ] as const
 const SWIPE_THRESHOLD_PX = 40
 const LAST_MANUAL_SHORTCUT_STORAGE_KEY = "terminal:last-manual-shortcut"
+const LAST_SKILL_COMMAND_STORAGE_KEY = "terminal:last-skill-command"
+const SKILL_COMMAND_PRESETS = ["/clear", "/resume", "/exit", "/simplify", "/context", "/model"] as const
+const IDLE_NOTIFICATION_DELAY_MS = 30_000
+const IDLE_CHECK_INTERVAL_MS = 1_000
 
 function logDebug(message: string, meta?: Record<string, unknown>) {
   if (!DEBUG_MODE) {
@@ -53,6 +57,63 @@ function logDebug(message: string, meta?: Record<string, unknown>) {
 
   const suffix = meta ? ` ${JSON.stringify(meta)}` : ""
   console.log(`[terminal-viewer][debug] ${message}${suffix}`)
+}
+
+function getVisibleBufferFingerprint(terminal: import("@xterm/xterm").Terminal) {
+  const buffer = terminal.buffer.active
+  const lineCount = Math.max(terminal.rows, 1)
+  const startLine = Math.max(buffer.viewportY, 0)
+  const lines: string[] = []
+
+  for (let index = 0; index < lineCount; index += 1) {
+    const line = buffer.getLine(startLine + index)
+    lines.push(line ? line.translateToString(true) : "")
+  }
+
+  return `${terminal.cols}x${terminal.rows}:${lines.join("\n")}`
+}
+
+function hashFingerprint(value: string) {
+  let hash = 0
+
+  for (let index = 0; index < value.length; index += 1) {
+    hash = (hash << 5) - hash + value.charCodeAt(index)
+    hash |= 0
+  }
+
+  return Math.abs(hash).toString(36)
+}
+
+function requestNotificationPermission() {
+  if (typeof window === "undefined" || typeof Notification === "undefined") {
+    return
+  }
+
+  if (Notification.permission !== "default") {
+    return
+  }
+
+  void Notification.requestPermission()
+}
+
+function notifyIdleTerminal(notificationKey: string) {
+  if (typeof window === "undefined" || typeof Notification === "undefined") {
+    return false
+  }
+
+  if (Notification.permission !== "granted") {
+    return false
+  }
+
+  const options: NotificationOptions = {
+    body: "화면 변화가 30초 동안 없습니다.",
+    tag: notificationKey,
+  }
+  ;(options as NotificationOptions & { renotify?: boolean }).renotify = false
+
+  new Notification("Terminal 입력 대기", options)
+
+  return true
 }
 
 function pickNextActive(
@@ -293,9 +354,15 @@ type TerminalCommandInputFormProps = {
   inputValue: string
   onInputValueChange: (value: string) => void
   onSubmit: NonNullable<ComponentProps<"form">["onSubmit"]>
+  onSubmitEnterOnly: () => void
 }
 
-function TerminalCommandInputForm({ inputValue, onInputValueChange, onSubmit }: TerminalCommandInputFormProps) {
+function TerminalCommandInputForm({
+  inputValue,
+  onInputValueChange,
+  onSubmit,
+  onSubmitEnterOnly,
+}: TerminalCommandInputFormProps) {
   return (
     <form onSubmit={onSubmit} className="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-2">
       <input
@@ -303,8 +370,15 @@ function TerminalCommandInputForm({ inputValue, onInputValueChange, onSubmit }: 
         aria-label="terminal-input"
         value={inputValue}
         onChange={(event) => onInputValueChange(event.target.value)}
+        onKeyDown={(event) => {
+          if (event.key !== "Enter" || inputValue) {
+            return
+          }
+          event.preventDefault()
+          onSubmitEnterOnly()
+        }}
         placeholder="Type a command and press Enter"
-        className="h-11 w-full rounded-md border border-input bg-background px-3 text-sm outline-none focus-visible:border-ring focus-visible:ring-2 focus-visible:ring-ring/40"
+        className="h-11 w-full rounded-md border border-input bg-background px-3 text-base outline-none focus-visible:border-ring focus-visible:ring-2 focus-visible:ring-ring/40"
       />
       <Button
         variant="outline"
@@ -312,6 +386,13 @@ function TerminalCommandInputForm({ inputValue, onInputValueChange, onSubmit }: 
         aria-label="terminal-submit"
         type="submit"
         className="h-11 w-11 px-0 text-base"
+        onClick={(event) => {
+          if (inputValue) {
+            return
+          }
+          event.preventDefault()
+          onSubmitEnterOnly()
+        }}
       >
         ↵
       </Button>
@@ -322,21 +403,29 @@ function TerminalCommandInputForm({ inputValue, onInputValueChange, onSubmit }: 
 type TerminalShortcutFormProps = {
   expression: string
   isDropdownOpen: boolean
+  isSkillDropdownOpen: boolean
   onExpressionChange: (expression: string) => void
   onToggleDropdown: () => void
+  onToggleSkillDropdown: () => void
   onSubmit: NonNullable<ComponentProps<"form">["onSubmit"]>
   onSelectPreset: (preset: string) => void
+  onSelectSkillCommand: (command: string) => void
   manualShortcutPreset: string | null
+  recentSkillCommand: string | null
 }
 
 function TerminalShortcutForm({
   expression,
   isDropdownOpen,
+  isSkillDropdownOpen,
   onExpressionChange,
   onToggleDropdown,
+  onToggleSkillDropdown,
   onSubmit,
   onSelectPreset,
+  onSelectSkillCommand,
   manualShortcutPreset,
+  recentSkillCommand,
 }: TerminalShortcutFormProps) {
   const filteredBuiltInPresets = SPECIAL_INPUT_PRESETS.filter((preset) =>
     preset.toLowerCase().includes(expression.trim().toLowerCase())
@@ -348,6 +437,10 @@ function TerminalShortcutForm({
           ...filteredBuiltInPresets.filter((preset) => preset.toLowerCase() !== manualShortcutPreset.toLowerCase()),
         ]
       : filteredBuiltInPresets
+
+  const skillCommands = (recentSkillCommand ? [recentSkillCommand, ...SKILL_COMMAND_PRESETS] : SKILL_COMMAND_PRESETS).filter(
+    (command, index, commands) => commands.indexOf(command) === index
+  )
 
   const blurActiveElement = () => {
     const activeElement = document.activeElement
@@ -366,9 +459,43 @@ function TerminalShortcutForm({
     onSelectPreset(preset)
   }
 
+  const handleSkillCommandPress = (command: string) => {
+    blurActiveElement()
+    onSelectSkillCommand(command)
+  }
+
   return (
-    <form onSubmit={onSubmit} className="grid grid-cols-[minmax(0,1fr)_auto_auto] items-start gap-2">
-      <div className="relative col-span-2 grid min-w-0 grid-cols-[auto_minmax(0,1fr)] gap-2">
+    <form onSubmit={onSubmit} className="grid grid-cols-[auto_auto_minmax(0,1fr)] items-start gap-2">
+      <div className="relative">
+        <Button
+          type="button"
+          variant="outline"
+          data-testid="terminal-skill-toggle"
+          aria-label="Toggle skill list"
+          className="h-11 min-w-11 px-0 text-base"
+          onClick={onToggleSkillDropdown}
+        >
+          ⌘
+        </Button>
+        {isSkillDropdownOpen ? (
+          <div
+            data-testid="terminal-skill-dropdown"
+            className="absolute bottom-[calc(100%+0.25rem)] left-0 z-20 max-h-52 min-w-32 overflow-y-auto rounded-md border border-border bg-popover p-1 shadow-lg"
+          >
+            {skillCommands.map((command) => (
+              <button
+                key={command}
+                type="button"
+                className="w-full rounded-sm px-2 py-2 text-left text-sm hover:bg-accent"
+                onClick={() => handleSkillCommandPress(command)}
+              >
+                {command}
+              </button>
+            ))}
+          </div>
+        ) : null}
+      </div>
+      <div className="relative grid min-w-0 grid-cols-[auto_minmax(0,1fr)] gap-2">
         <Button
           type="button"
           variant="outline"
@@ -377,7 +504,7 @@ function TerminalShortcutForm({
           className="h-11 min-w-11 px-0 text-base"
           onClick={handleTogglePress}
         >
-          {isDropdownOpen ? "▴" : "▾"}
+          ⌨
         </Button>
         <input
           data-testid="terminal-special-preset"
@@ -385,7 +512,7 @@ function TerminalShortcutForm({
           value={expression}
           onChange={(event) => onExpressionChange(event.target.value)}
           placeholder="Select or type a shortcut (e.g., Ctrl+B D)"
-          className="h-11 w-full rounded-md border border-input bg-background px-3 text-sm outline-none focus-visible:border-ring focus-visible:ring-2 focus-visible:ring-ring/40"
+          className="h-11 w-full rounded-md border border-input bg-background px-3 text-base outline-none focus-visible:border-ring focus-visible:ring-2 focus-visible:ring-ring/40"
         />
         {isDropdownOpen ? (
           <div
@@ -424,6 +551,7 @@ type UseShortcutHandlersParams = {
   isExpressionManual: boolean
   sendSequence: (expression: string) => Promise<void>
   onManualExpressionSubmitted: (expression: string) => void
+  onBeforeSpecialSubmit?: () => void
 }
 
 function useShortcutHandlers({
@@ -432,6 +560,7 @@ function useShortcutHandlers({
   isExpressionManual,
   sendSequence,
   onManualExpressionSubmitted,
+  onBeforeSpecialSubmit,
 }: UseShortcutHandlersParams) {
   const resetShortcutInput = useCallback(() => {
     dispatchShortcut({ type: "expressionCleared" })
@@ -452,13 +581,21 @@ function useShortcutHandlers({
       if (!trimmedExpression) {
         return
       }
+      onBeforeSpecialSubmit?.()
       if (isExpressionManual) {
         onManualExpressionSubmitted(trimmedExpression)
       }
       void sendSequence(trimmedExpression)
       resetShortcutInput()
     },
-    [expression, isExpressionManual, onManualExpressionSubmitted, resetShortcutInput, sendSequence]
+    [
+      expression,
+      isExpressionManual,
+      onBeforeSpecialSubmit,
+      onManualExpressionSubmitted,
+      resetShortcutInput,
+      sendSequence,
+    ]
   )
 
   const onExpressionChange = useCallback(
@@ -636,9 +773,37 @@ function useTerminalRuntimeConnection({
         void sendInput(data)
       })
 
+      let lastVisualFingerprint = getVisibleBufferFingerprint(terminal)
+      let lastVisualChangeAt = Date.now()
+      let lastNotificationKey: string | null = null
+
+      const idleCheckInterval = window.setInterval(() => {
+        const nextFingerprint = getVisibleBufferFingerprint(terminal)
+
+        if (nextFingerprint !== lastVisualFingerprint) {
+          lastVisualFingerprint = nextFingerprint
+          lastVisualChangeAt = Date.now()
+          lastNotificationKey = null
+          return
+        }
+
+        if (Date.now() - lastVisualChangeAt < IDLE_NOTIFICATION_DELAY_MS) {
+          return
+        }
+
+        const notificationKey = `${activeTerminalId}:${hashFingerprint(nextFingerprint)}`
+        if (notificationKey === lastNotificationKey) {
+          return
+        }
+
+        if (notifyIdleTerminal(notificationKey)) {
+          lastNotificationKey = notificationKey
+        }
+      }, IDLE_CHECK_INTERVAL_MS)
+
       lastResizeRef.current = null
 
-      const onResize = () => {
+      const syncTerminalSize = () => {
         fitAddon.fit()
 
         const next = { cols: terminal.cols, rows: terminal.rows }
@@ -650,11 +815,74 @@ function useTerminalRuntimeConnection({
         void sendResize(next.cols, next.rows)
       }
 
+      let syncRafId: number | null = null
+      let orientationSyncTimeout: number | null = null
+
+      const requestSyncTerminalSize = () => {
+        if (syncRafId !== null) {
+          window.cancelAnimationFrame(syncRafId)
+        }
+
+        syncRafId = window.requestAnimationFrame(() => {
+          syncRafId = null
+          syncTerminalSize()
+        })
+      }
+
+      const onResize = () => {
+        requestSyncTerminalSize()
+      }
+
+      const onOrientationChange = () => {
+        requestSyncTerminalSize()
+
+        if (orientationSyncTimeout !== null) {
+          window.clearTimeout(orientationSyncTimeout)
+        }
+
+        orientationSyncTimeout = window.setTimeout(() => {
+          orientationSyncTimeout = null
+          requestSyncTerminalSize()
+        }, 180)
+      }
+
+      const visualViewport = window.visualViewport
+      const onVisualViewportResize = () => {
+        requestSyncTerminalSize()
+      }
+
+      const resizeObserver = new ResizeObserver(() => {
+        requestSyncTerminalSize()
+      })
+      resizeObserver.observe(containerRef.current)
+
       window.addEventListener("resize", onResize)
-      onResize()
+      window.addEventListener("orientationchange", onOrientationChange)
+
+      if (visualViewport) {
+        visualViewport.addEventListener("resize", onVisualViewportResize)
+      }
+
+      syncTerminalSize()
 
       cleanupRuntime = () => {
+        if (syncRafId !== null) {
+          window.cancelAnimationFrame(syncRafId)
+          syncRafId = null
+        }
+
+        if (orientationSyncTimeout !== null) {
+          window.clearTimeout(orientationSyncTimeout)
+          orientationSyncTimeout = null
+        }
+
+        window.clearInterval(idleCheckInterval)
+        resizeObserver.disconnect()
         window.removeEventListener("resize", onResize)
+        window.removeEventListener("orientationchange", onOrientationChange)
+        if (visualViewport) {
+          visualViewport.removeEventListener("resize", onVisualViewportResize)
+        }
         terminalInputDisposable.dispose()
         eventSource.close()
         terminal.dispose()
@@ -680,6 +908,8 @@ export function TerminalViewer() {
   const [inputValue, setInputValue] = useState("")
   const [isCreatingTerminal, setIsCreatingTerminal] = useState(false)
   const [manualShortcutPreset, setManualShortcutPreset] = useState<string | null>(null)
+  const [recentSkillCommand, setRecentSkillCommand] = useState<string | null>(null)
+  const [isSkillDropdownOpen, setIsSkillDropdownOpen] = useState(false)
   const [shortcutState, dispatchShortcut] = useReducer(shortcutInputReducer, {
     expression: "",
     isDropdownOpen: false,
@@ -769,6 +999,19 @@ export function TerminalViewer() {
     }
   }, [])
 
+  const saveLastSkillCommand = useCallback((nextCommand: string) => {
+    setRecentSkillCommand(nextCommand)
+    if (typeof window === "undefined") {
+      return
+    }
+
+    try {
+      window.localStorage.setItem(LAST_SKILL_COMMAND_STORAGE_KEY, nextCommand)
+    } catch {
+      logDebug("failed to save skill command")
+    }
+  }, [])
+
   const switchTerminalByOffset = useCallback(
     (offset: number) => {
       if (terminalIds.length < 2 || !activeTerminalId) {
@@ -787,6 +1030,7 @@ export function TerminalViewer() {
   )
 
   const createTerminal = useCallback(async () => {
+    requestNotificationPermission()
     if (createTerminalLockRef.current) {
       return
     }
@@ -825,14 +1069,17 @@ export function TerminalViewer() {
   const onSubmit = useCallback<NonNullable<ComponentProps<"form">["onSubmit"]>>(
     (event) => {
       event.preventDefault()
-      if (!inputValue) {
-        return
-      }
+      requestNotificationPermission()
       void sendInput(`${inputValue}\r`)
       setInputValue("")
     },
     [inputValue, sendInput]
   )
+
+  const onSubmitEnterOnly = useCallback(() => {
+    requestNotificationPermission()
+    void sendInput("\r")
+  }, [sendInput])
 
   useEffect(() => {
     if (typeof window === "undefined") {
@@ -841,12 +1088,20 @@ export function TerminalViewer() {
 
     try {
       const storedExpression = window.localStorage.getItem(LAST_MANUAL_SHORTCUT_STORAGE_KEY)
-      if (!storedExpression) {
-        return
+      if (storedExpression) {
+        setManualShortcutPreset(storedExpression)
       }
-      setManualShortcutPreset(storedExpression)
     } catch {
       logDebug("failed to load manual shortcut")
+    }
+
+    try {
+      const storedCommand = window.localStorage.getItem(LAST_SKILL_COMMAND_STORAGE_KEY)
+      if (storedCommand) {
+        setRecentSkillCommand(storedCommand)
+      }
+    } catch {
+      logDebug("failed to load skill command")
     }
   }, [])
 
@@ -856,12 +1111,40 @@ export function TerminalViewer() {
     isExpressionManual: isSpecialExpressionManual,
     sendSequence,
     onManualExpressionSubmitted: saveLastManualShortcut,
+    onBeforeSpecialSubmit: requestNotificationPermission,
   })
+
+  const handleToggleSpecialDropdown = useCallback(() => {
+    if (!isSpecialDropdownOpen) {
+      setIsSkillDropdownOpen(false)
+    }
+    onToggleDropdown()
+  }, [isSpecialDropdownOpen, onToggleDropdown])
+
+  const handleToggleSkillDropdown = useCallback(() => {
+    setIsSkillDropdownOpen((isOpen) => {
+      const nextIsOpen = !isOpen
+      if (nextIsOpen) {
+        dispatchShortcut({ type: "dropdownClosed" })
+      }
+      return nextIsOpen
+    })
+  }, [dispatchShortcut])
+
+  const handleSelectSkillCommand = useCallback(
+    (command: string) => {
+      requestNotificationPermission()
+      void sendInput(`${command}\r`)
+      saveLastSkillCommand(command)
+      setIsSkillDropdownOpen(false)
+    },
+    [saveLastSkillCommand, sendInput]
+  )
 
   return (
     <div
       data-testid="terminal-page"
-      className="grid h-svh w-full grid-rows-[auto_minmax(0,1fr)_auto_auto_auto] gap-2 px-[max(0.5rem,env(safe-area-inset-left))] pt-[max(0.5rem,env(safe-area-inset-top))] pr-[max(0.5rem,env(safe-area-inset-right))] pb-[max(0.5rem,env(safe-area-inset-bottom))] sm:gap-3"
+      className="fixed inset-0 box-border grid grid-rows-[auto_minmax(0,1fr)_auto_auto_auto] gap-2 px-[max(0.5rem,env(safe-area-inset-left))] pt-[max(0.5rem,env(safe-area-inset-top))] pr-[max(0.5rem,env(safe-area-inset-right))] pb-[max(0.5rem,env(safe-area-inset-bottom))] sm:gap-3"
     >
       <TerminalHeader
         terminalIds={terminalIds}
@@ -877,16 +1160,21 @@ export function TerminalViewer() {
         inputValue={inputValue}
         onInputValueChange={setInputValue}
         onSubmit={onSubmit}
+        onSubmitEnterOnly={onSubmitEnterOnly}
       />
 
       <TerminalShortcutForm
         expression={specialExpression}
         isDropdownOpen={isSpecialDropdownOpen}
+        isSkillDropdownOpen={isSkillDropdownOpen}
         onExpressionChange={onExpressionChange}
-        onToggleDropdown={onToggleDropdown}
+        onToggleDropdown={handleToggleSpecialDropdown}
+        onToggleSkillDropdown={handleToggleSkillDropdown}
         onSubmit={onSpecialSubmit}
         onSelectPreset={onSelectPreset}
+        onSelectSkillCommand={handleSelectSkillCommand}
         manualShortcutPreset={manualShortcutPreset}
+        recentSkillCommand={recentSkillCommand}
       />
     </div>
   )
