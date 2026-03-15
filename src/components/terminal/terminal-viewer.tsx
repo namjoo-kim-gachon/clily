@@ -46,10 +46,38 @@ const SPECIAL_INPUT_PRESETS = [
 const SWIPE_THRESHOLD_PX = 40
 const LAST_MANUAL_SHORTCUT_STORAGE_KEY = "terminal:last-manual-shortcut"
 const LAST_SKILL_COMMAND_STORAGE_KEY = "terminal:last-skill-command"
-const SKILL_COMMAND_PRESETS = ["/clear", "/resume", "/exit", "/simplify", "/context", "/model"] as const
+const SKILL_COMMAND_PRESETS = ["/clear", "/resume", "/exit", "/simplify", "/context", "/compact", "/model"] as const
 const IDLE_NOTIFICATION_DELAY_MS = 30_000
 const IDLE_CHECK_INTERVAL_MS = 1_000
 const TERMINAL_SCROLLBACK_LINES = 1024
+
+function estimateTerminalDimensions(containerEl: HTMLElement | null, fontSize: number) {
+  if (!containerEl) {
+    return { cols: 80, rows: 24 }
+  }
+
+  // Measure actual monospace character width via canvas for accuracy
+  let charWidth = fontSize * 0.6
+  let charHeight = fontSize * 1.22
+
+  try {
+    const canvas = document.createElement("canvas")
+    const ctx = canvas.getContext("2d")
+    if (ctx) {
+      ctx.font = `${fontSize}px monospace`
+      const measured = ctx.measureText("W").width
+      if (measured > 0) {
+        charWidth = measured
+      }
+    }
+  } catch {
+    // fallback to estimate
+  }
+
+  const cols = Math.max(20, Math.floor(containerEl.clientWidth / charWidth))
+  const rows = Math.max(5, Math.floor(containerEl.clientHeight / charHeight))
+  return { cols, rows }
+}
 
 function logDebug(message: string, meta?: Record<string, unknown>) {
   if (!DEBUG_MODE) {
@@ -742,6 +770,59 @@ function useTerminalRuntimeConnection({
       terminal.open(containerRef.current)
       fitAddon.fit()
 
+      // Mobile vertical scroll: intercept touch events in capture phase before xterm handles them,
+      // then use terminal.scrollLines() to scroll the xterm buffer directly.
+      let touchScrollStartY = 0
+      let touchScrollStartX = 0
+      let touchScrollLastY = 0
+      let isVerticalScroll = false
+
+      const onTouchStartForScroll = (ev: TouchEvent) => {
+        const t = ev.touches[0]
+        if (!t) return
+        touchScrollStartX = t.clientX
+        touchScrollStartY = t.clientY
+        touchScrollLastY = t.clientY
+        isVerticalScroll = false
+      }
+
+      const onTouchMoveForScroll = (ev: TouchEvent) => {
+        const t = ev.touches[0]
+        if (!t) return
+        const totalDx = Math.abs(t.clientX - touchScrollStartX)
+        const totalDy = t.clientY - touchScrollStartY
+
+        if (!isVerticalScroll && Math.abs(totalDy) < 6) return
+
+        if (!isVerticalScroll) {
+          if (Math.abs(totalDy) > totalDx) {
+            isVerticalScroll = true
+          } else {
+            return
+          }
+        }
+
+        // Prevent xterm from handling this touch event and suppress iOS bounce
+        ev.preventDefault()
+        ev.stopPropagation()
+
+        const deltaY = t.clientY - touchScrollLastY
+        touchScrollLastY = t.clientY
+
+        // Negative deltaY = finger moving up = scroll down (forward)
+        const lines = -Math.round(deltaY / 14)
+        if (lines !== 0) {
+          terminal.scrollLines(lines)
+        }
+      }
+
+      const scrollEl = containerRef.current
+      if (scrollEl) {
+        scrollEl.addEventListener('touchstart', onTouchStartForScroll, { passive: true, capture: true })
+        // passive: false so we can call preventDefault() to suppress iOS bounce
+        scrollEl.addEventListener('touchmove', onTouchMoveForScroll, { passive: false, capture: true })
+      }
+
       const streamUrl = `/api/terminal/stream?terminalId=${encodeURIComponent(activeTerminalId)}`
       const eventSource = new EventSource(streamUrl)
       eventSourceRef.current = eventSource
@@ -823,18 +904,20 @@ function useTerminalRuntimeConnection({
         void sendResize(next.cols, next.rows)
       }
 
-      let syncRafId: number | null = null
+      let syncDebounceId: number | null = null
       let orientationSyncTimeout: number | null = null
 
+      // Debounce with setTimeout so rapid consecutive resize events (e.g. mobile keyboard
+      // show/hide spanning many frames) collapse into a single PTY resize call.
       const requestSyncTerminalSize = () => {
-        if (syncRafId !== null) {
-          window.cancelAnimationFrame(syncRafId)
+        if (syncDebounceId !== null) {
+          window.clearTimeout(syncDebounceId)
         }
 
-        syncRafId = window.requestAnimationFrame(() => {
-          syncRafId = null
+        syncDebounceId = window.setTimeout(() => {
+          syncDebounceId = null
           syncTerminalSize()
-        })
+        }, 200)
       }
 
       const onResize = () => {
@@ -844,14 +927,15 @@ function useTerminalRuntimeConnection({
       const onOrientationChange = () => {
         requestSyncTerminalSize()
 
+        // Extra delay after orientation change for layout to fully settle
         if (orientationSyncTimeout !== null) {
           window.clearTimeout(orientationSyncTimeout)
         }
 
         orientationSyncTimeout = window.setTimeout(() => {
           orientationSyncTimeout = null
-          requestSyncTerminalSize()
-        }, 180)
+          syncTerminalSize()
+        }, 400)
       }
 
       const visualViewport = window.visualViewport
@@ -874,9 +958,9 @@ function useTerminalRuntimeConnection({
       syncTerminalSize()
 
       cleanupRuntime = () => {
-        if (syncRafId !== null) {
-          window.cancelAnimationFrame(syncRafId)
-          syncRafId = null
+        if (syncDebounceId !== null) {
+          window.clearTimeout(syncDebounceId)
+          syncDebounceId = null
         }
 
         if (orientationSyncTimeout !== null) {
@@ -890,6 +974,10 @@ function useTerminalRuntimeConnection({
         window.removeEventListener("orientationchange", onOrientationChange)
         if (visualViewport) {
           visualViewport.removeEventListener("resize", onVisualViewportResize)
+        }
+        if (scrollEl) {
+          scrollEl.removeEventListener('touchstart', onTouchStartForScroll, { capture: true })
+          scrollEl.removeEventListener('touchmove', onTouchMoveForScroll, { capture: true, passive: false } as EventListenerOptions)
         }
         terminalInputDisposable?.dispose()
         eventSource.close()
@@ -1048,7 +1136,14 @@ export function TerminalViewer() {
     setIsCreatingTerminal(true)
 
     try {
-      const response = await fetch("/api/terminal/create", { method: "POST" })
+      // Estimate terminal dimensions from the container so the PTY starts at the
+      // correct size and zsh never needs to redraw (avoids the initial % artifact).
+      const initialDims = estimateTerminalDimensions(containerRef.current, 14)
+      const response = await fetch("/api/terminal/create", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(initialDims),
+      })
       if (!response.ok) {
         logDebug("create session failed", { status: response.status })
         return

@@ -38,7 +38,7 @@ export type TerminalRuntime = {
 }
 
 export type TerminalRuntimeManager = {
-  createSession: () => string
+  createSession: (initialCols?: number, initialRows?: number) => string
   listSessions: () => string[]
   getSessionRuntime: (terminalId?: string) => TerminalRuntime | undefined
   deleteSession: (terminalId: string) => void
@@ -48,6 +48,8 @@ export type TerminalRuntimeManager = {
 type CreateTerminalRuntimeOptions = {
   maxBacklogChars?: number
   onExit?: () => void
+  initialCols?: number
+  initialRows?: number
 }
 
 function logDebug(message: string, meta?: Record<string, unknown>) {
@@ -69,15 +71,40 @@ function resolveShell() {
   return "/bin/sh"
 }
 
-function createTerminalAdapter(shell: string): TerminalAdapter {
-  const terminalEnv = { ...process.env }
-  delete terminalEnv.npm_config_prefix
+function buildTerminalEnv(): Record<string, string> {
+  const env: Record<string, string> = {}
 
-  const pty = spawnPty(shell, [], {
-    cols: 120,
-    rows: 40,
-    cwd: process.cwd(),
-    env: terminalEnv,
+  const keys = [
+    "HOME", "USER", "LOGNAME",
+    "SHELL",
+    "TERM", "COLORTERM",
+    "LANG", "LC_ALL", "LC_CTYPE", "LC_TERMINAL", "LC_TERMINAL_VERSION",
+    "TMPDIR",
+    "PATH",
+    "NVM_DIR", "NVM_BIN", "NVM_INC", "NVM_CD_FLAGS",
+    "SSH_AUTH_SOCK",
+  ]
+
+  for (const key of keys) {
+    const value = process.env[key]
+    if (value !== undefined) {
+      env[key] = value
+    }
+  }
+
+  if (!env.TERM) {
+    env.TERM = "xterm-256color"
+  }
+
+  return env
+}
+
+function createTerminalAdapter(shell: string, cols = 120, rows = 40): TerminalAdapter {
+  const pty = spawnPty(shell, ["-l"], {
+    cols,
+    rows,
+    cwd: process.env.HOME ?? process.cwd(),
+    env: buildTerminalEnv(),
   })
 
   logDebug("terminal adapter created", { adapter: "node-pty", shell })
@@ -201,7 +228,11 @@ export function createTerminalRuntime(
   adapter?: TerminalAdapter,
   options?: CreateTerminalRuntimeOptions
 ): TerminalRuntime {
-  const terminal = adapter ?? (isE2EMockMode() ? createMockTerminalAdapter() : createTerminalAdapter(resolveShell()))
+  const terminal =
+    adapter ??
+    (isE2EMockMode()
+      ? createMockTerminalAdapter()
+      : createTerminalAdapter(resolveShell(), options?.initialCols, options?.initialRows))
   const maxBacklogChars = options?.maxBacklogChars ?? MAX_BACKLOG_CHARS
 
   const backlog: string[] = []
@@ -372,12 +403,14 @@ export function createTerminalRuntimeManager(): TerminalRuntimeManager {
     setDefaultFromExisting()
   }
 
-  const createSession = () => {
+  const createSession = (initialCols?: number, initialRows?: number) => {
     const terminalId = generateTerminalId()
     const runtime = createTerminalRuntime(undefined, {
       onExit: () => {
         handleSessionExit(terminalId)
       },
+      initialCols,
+      initialRows,
     })
 
     sessions.set(terminalId, runtime)
