@@ -49,7 +49,7 @@ const LAST_SKILL_COMMAND_STORAGE_KEY = "terminal:last-skill-command"
 const SKILL_COMMAND_PRESETS = ["/clear", "/resume", "/exit", "/simplify", "/context", "/compact", "/usage", "/model"] as const
 const IDLE_NOTIFICATION_DELAY_MS = 30_000
 const IDLE_CHECK_INTERVAL_MS = 1_000
-const TERMINAL_SCROLLBACK_LINES = 512
+const TERMINAL_SCROLLBACK_LINES = 256
 
 function estimateTerminalDimensions(containerEl: HTMLElement | null, fontSize: number) {
   if (!containerEl) {
