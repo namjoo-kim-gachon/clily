@@ -46,7 +46,7 @@ const SPECIAL_INPUT_PRESETS = [
 const SWIPE_THRESHOLD_PX = 40
 const LAST_MANUAL_SHORTCUT_STORAGE_KEY = "terminal:last-manual-shortcut"
 const LAST_SKILL_COMMAND_STORAGE_KEY = "terminal:last-skill-command"
-const SKILL_COMMAND_PRESETS = ["/clear", "/resume", "/exit", "/simplify", "/context", "/compact", "/model"] as const
+const SKILL_COMMAND_PRESETS = ["/clear", "/resume", "/exit", "/simplify", "/context", "/compact", "/usage", "/model"] as const
 const IDLE_NOTIFICATION_DELAY_MS = 30_000
 const IDLE_CHECK_INTERVAL_MS = 1_000
 const TERMINAL_SCROLLBACK_LINES = 1024
@@ -303,6 +303,7 @@ type TerminalHeaderProps = {
   isCreatingTerminal: boolean
   onSwitchOffset: (offset: number) => void
   onCreateTerminal: () => void
+  onCloseTerminal: () => void
 }
 
 function TerminalHeader({
@@ -311,6 +312,7 @@ function TerminalHeader({
   isCreatingTerminal,
   onSwitchOffset,
   onCreateTerminal,
+  onCloseTerminal,
 }: TerminalHeaderProps) {
   const currentIndex = activeTerminalId ? terminalIds.indexOf(activeTerminalId) : -1
 
@@ -354,6 +356,16 @@ function TerminalHeader({
           className="h-9 min-w-9 px-3"
         >
           {isCreatingTerminal ? "…" : "+"}
+        </Button>
+        <Button
+          type="button"
+          variant="outline"
+          data-testid="terminal-close"
+          aria-label="Close terminal"
+          onClick={onCloseTerminal}
+          className="h-9 w-9 px-0 text-base font-semibold"
+        >
+          ✕
         </Button>
       </div>
     </div>
@@ -858,8 +870,16 @@ function useTerminalRuntimeConnection({
         console.warn("[terminal-viewer] eventsource error", { terminalId: activeTerminalId })
       })
 
+      // xterm.js auto-responds to DA (Device Attributes) queries from the PTY.
+      // Forwarding these responses back to the PTY causes the shell to echo
+      // garbage text like "1;2c" at the prompt. Filter them out here.
+      const DA_RESPONSE_PATTERN = /\x1b\[[?>][0-9;]*c|\x9b[?>][0-9;]*c/g
+
       const terminalInputDisposable = terminal.onData((data: string) => {
-        void sendInput(data)
+        const filtered = data.replace(DA_RESPONSE_PATTERN, "")
+        if (filtered) {
+          void sendInput(filtered)
+        }
       })
 
       let lastVisualFingerprint = getVisibleBufferFingerprint(terminal)
@@ -1157,6 +1177,29 @@ export function TerminalViewer() {
     }
   }, [])
 
+  const closeTerminal = useCallback(async () => {
+    if (!activeTerminalId) {
+      return
+    }
+
+    if (!window.confirm("이 터미널을 닫으시겠습니까?")) {
+      return
+    }
+
+    const response = await fetch("/api/terminal/delete", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ terminalId: activeTerminalId }),
+    })
+
+    if (!response.ok) {
+      logDebug("close terminal failed", { status: response.status })
+      return
+    }
+
+    dispatchSessions({ type: "activeTerminalRemoved", payload: { terminalId: activeTerminalId } })
+  }, [activeTerminalId, dispatchSessions])
+
   useTouchSwipeNavigation({ terminalShellRef, switchTerminalByOffset })
   useInitialSessionsLoad(fetchSessions)
   useTerminalRuntimeConnection({
@@ -1272,6 +1315,7 @@ export function TerminalViewer() {
         isCreatingTerminal={isCreatingTerminal}
         onSwitchOffset={switchTerminalByOffset}
         onCreateTerminal={() => void createTerminal()}
+        onCloseTerminal={() => void closeTerminal()}
       />
 
       <TerminalViewport terminalShellRef={terminalShellRef} containerRef={containerRef} />
