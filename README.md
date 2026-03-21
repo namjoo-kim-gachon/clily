@@ -10,9 +10,12 @@
 
 Use your browser as a mobile-friendly terminal client while keeping terminal sessions alive on the server.
 
+Sessions are backed by [shpool](https://github.com/shell-pool/shpool), so they survive server restarts and can be attached from any other terminal client.
+
 ## What You Can Do
 
-- Keep terminal sessions alive even if you refresh or reconnect.
+- Keep terminal sessions alive even across server restarts (via shpool).
+- Attach to the same session from any terminal with `shpool attach clily-1`.
 - Open multiple terminal sessions and switch between them.
 - Send normal commands and shortcut sequences from the same UI.
 - Restore recent terminal output after reconnect.
@@ -28,7 +31,17 @@ Use your browser as a mobile-friendly terminal client while keeping terminal ses
 npm install
 ```
 
-### 2) Run the app
+### 2) Install shpool (required)
+
+```bash
+# macOS
+brew install shpool
+
+# or via cargo
+cargo install shpool
+```
+
+### 3) Run the app
 
 ```bash
 npm run dev
@@ -38,6 +51,8 @@ Open:
 
 - `http://localhost:3000` (default Next.js dev port)
 
+> The shpool daemon starts automatically on first use. Sessions are named `clily-1`, `clily-2`, etc.
+
 ## Core Usage Flow
 
 1. Open the app and wait for the terminal view to load.
@@ -46,27 +61,38 @@ Open:
 4. Switch sessions:
    - Mobile: swipe left/right on the terminal area.
    - Desktop: use previous/next buttons.
+   - The header shows the current session name, e.g. `Terminal 1 (clily-1) / 2`.
 5. For shortcut input (for example `Ctrl+B D`), use the shortcut field and submit.
-6. If you reload or reconnect, the app restores session state and recent output.
+6. If you reload or reconnect, the app restores all existing shpool sessions automatically.
+7. From any other terminal, attach to the same session with:
+   ```bash
+   shpool attach clily-1
+   ```
 
 
 ## Troubleshooting
 
 ### Terminal does not start or shows runtime failure
 
-This usually means `node-pty` cannot create a PTY in the current environment.
+This usually means shpool is not installed or the daemon failed to start.
 
 Try:
 
-- Running from a local terminal session.
+- Verifying shpool is installed: `which shpool`
+- Starting the daemon manually: `shpool daemon`
+- Running from a local terminal session (not SSH without a TTY).
 - Verifying shell availability and permissions on macOS/Linux.
+
+### shpool is not installed
+
+If shpool is unavailable, the app falls back to direct PTY sessions (no persistence across server restarts).
 
 
 ## FAQ
 
 ### Does this create a new terminal every time I reconnect?
 
-No. Sessions are managed server-side and persist across browser reconnects during server process lifetime.
+No. Sessions persist across browser reconnects and server restarts. When the server starts, it automatically reconnects to any existing shpool sessions named `clily-N`.
 
 ### Can I use multiple terminals?
 
@@ -76,9 +102,13 @@ Yes. Create additional sessions with the **+** button and switch between them.
 
 You can send key-like expressions such as `Ctrl+B`, `Shift+Tab`, arrow keys, `Esc`, and more through the shortcut input flow.
 
-### Is this production-ready with persistent storage?
+### Can I access the same session from iTerm2 or Terminal.app?
 
-Not yet. Current behavior focuses on in-memory session management during server runtime.
+Yes. Since sessions are backed by shpool, you can attach from any terminal:
+
+```bash
+shpool attach clily-1
+```
 
 ### Does it support PWA install?
 

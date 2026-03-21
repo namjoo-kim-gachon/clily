@@ -11,7 +11,7 @@ async function submitTerminalInput(page: Page) {
 }
 
 function parseActiveLabel(text: string) {
-  const match = text.match(/Terminal\s+(\d+)\s*\/\s*(\d+)/)
+  const match = text.match(/Terminal\s+(\d+)[^\/]*\/\s*(\d+)/)
   return {
     active: Number(match?.[1] ?? 0),
     total: Number(match?.[2] ?? 0),
@@ -166,77 +166,4 @@ test.describe("P2 persistent terminal", () => {
     await expectNoStandalonePercent(page)
   })
 
-  test("sends one idle notification and deduplicates identical state", async ({ page, isMobile }) => {
-    test.skip(isMobile, "runs only on desktop project")
-    test.setTimeout(130_000)
-
-    await page.addInitScript(() => {
-      const notifications: Array<{ title: string; body?: string; tag?: string }> = []
-      ;(window as typeof window & { __idleNotifications?: typeof notifications }).__idleNotifications = notifications
-
-      class MockNotification {
-        static permission: NotificationPermission = "granted"
-
-        static requestPermission() {
-          return Promise.resolve<NotificationPermission>("granted")
-        }
-
-        constructor(title: string, options?: NotificationOptions) {
-          notifications.push({ title, body: options?.body, tag: options?.tag })
-        }
-      }
-
-      Object.defineProperty(window, "Notification", {
-        configurable: true,
-        writable: true,
-        value: MockNotification,
-      })
-    })
-
-    await page.goto("/")
-
-    const input = page.getByTestId("terminal-input")
-    if (await input.isVisible()) {
-      await input.fill("echo idle-check")
-      await submitTerminalInput(page)
-    } else {
-      const viewport = page.getByTestId("terminal-viewport")
-      await viewport.click()
-      await page.keyboard.type("echo idle-check")
-      await page.keyboard.press("Enter")
-    }
-
-    await expect.poll(async () => {
-      return await page.evaluate(() => {
-        return (window as typeof window & { __idleNotifications?: Array<unknown> }).__idleNotifications?.length ?? 0
-      })
-    }).toBe(0)
-
-    await page.waitForTimeout(31_000)
-
-    await expect.poll(async () => {
-      return await page.evaluate(() => {
-        return (window as typeof window & { __idleNotifications?: Array<unknown> }).__idleNotifications?.length ?? 0
-      })
-    }).toBe(1)
-
-    await page.waitForTimeout(31_000)
-
-    await expect.poll(async () => {
-      return await page.evaluate(() => {
-        return (window as typeof window & { __idleNotifications?: Array<unknown> }).__idleNotifications?.length ?? 0
-      })
-    }).toBe(1)
-
-    const viewport = page.viewportSize()
-    await page.setViewportSize({ width: (viewport?.width ?? 1280) - 120, height: viewport?.height ?? 720 })
-
-    await page.waitForTimeout(31_000)
-
-    await expect.poll(async () => {
-      return await page.evaluate(() => {
-        return (window as typeof window & { __idleNotifications?: Array<unknown> }).__idleNotifications?.length ?? 0
-      })
-    }).toBe(2)
-  })
 })

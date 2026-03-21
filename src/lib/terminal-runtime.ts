@@ -1,4 +1,5 @@
 import { existsSync } from "node:fs"
+import { spawn as spawnProcess, spawnSync } from "node:child_process"
 
 import { spawn as spawnPty } from "node-pty"
 
@@ -50,6 +51,7 @@ type CreateTerminalRuntimeOptions = {
   onExit?: () => void
   initialCols?: number
   initialRows?: number
+  sessionName?: string
 }
 
 function logDebug(message: string, meta?: Record<string, unknown>) {
@@ -99,15 +101,69 @@ function buildTerminalEnv(): Record<string, string> {
   return env
 }
 
-function createTerminalAdapter(shell: string, cols = 120, rows = 40): TerminalAdapter {
-  const pty = spawnPty(shell, ["-l"], {
+let shpoolAvailable: boolean | null = null
+
+function isShpoolAvailable(): boolean {
+  return shpoolAvailable === true
+}
+
+// Starts shpool daemon if needed and returns existing clily-N session names.
+// Sets shpoolAvailable as a side effect.
+function initShpool(): string[] {
+  try {
+    let result = spawnSync("shpool", ["list"], { encoding: "utf8", timeout: 2000 })
+
+    if (result.error) {
+      shpoolAvailable = false
+      return []
+    }
+
+    shpoolAvailable = true
+
+    if (result.status !== 0) {
+      const proc = spawnProcess("shpool", ["daemon"], { detached: true, stdio: "ignore" })
+      proc.unref()
+      spawnSync("sleep", ["0.5"])
+      result = spawnSync("shpool", ["list"], { encoding: "utf8", timeout: 2000 })
+      if (result.status !== 0 || !result.stdout) return []
+    }
+
+    return (result.stdout ?? "")
+      .trim()
+      .split("\n")
+      .slice(1)
+      .map((line) => line.trim().split(/\s+/)[0])
+      .filter((name): name is string => !!name && /^clily-\d+$/.test(name))
+  } catch {
+    shpoolAvailable = false
+    return []
+  }
+}
+
+function generateShpoolSessionName(existing: string[]): string {
+  const numbers = existing
+    .map((name) => name.match(/^clily-(\d+)$/)?.[1])
+    .filter((n): n is string => n !== undefined)
+    .map((n) => parseInt(n, 10))
+  const maxNum = numbers.length > 0 ? Math.max(...numbers) : 0
+  return `clily-${maxNum + 1}`
+}
+
+function spawnPtyAdapter(
+  command: string,
+  args: string[],
+  cols: number,
+  rows: number,
+  debugMeta: Record<string, unknown>
+): TerminalAdapter {
+  const pty = spawnPty(command, args, {
     cols,
     rows,
     cwd: process.env.HOME ?? process.cwd(),
     env: buildTerminalEnv(),
   })
 
-  logDebug("terminal adapter created", { adapter: "node-pty", shell })
+  logDebug("terminal adapter created", debugMeta)
 
   return {
     write: (data) => pty.write(data),
@@ -122,6 +178,14 @@ function createTerminalAdapter(shell: string, cols = 120, rows = 40): TerminalAd
     },
     kill: () => pty.kill(),
   }
+}
+
+function createShpoolTerminalAdapter(sessionName: string, cols = 120, rows = 40): TerminalAdapter {
+  return spawnPtyAdapter("shpool", ["attach", sessionName], cols, rows, { adapter: "shpool", sessionName })
+}
+
+function createTerminalAdapter(shell: string, cols = 120, rows = 40): TerminalAdapter {
+  return spawnPtyAdapter(shell, ["-l"], cols, rows, { adapter: "node-pty", shell })
 }
 
 function createMockTerminalAdapter(): TerminalAdapter {
@@ -232,7 +296,13 @@ export function createTerminalRuntime(
     adapter ??
     (isE2EMockMode()
       ? createMockTerminalAdapter()
-      : createTerminalAdapter(resolveShell(), options?.initialCols, options?.initialRows))
+      : isShpoolAvailable()
+        ? createShpoolTerminalAdapter(
+            options?.sessionName ?? "clily-1",
+            options?.initialCols,
+            options?.initialRows
+          )
+        : createTerminalAdapter(resolveShell(), options?.initialCols, options?.initialRows))
   const maxBacklogChars = options?.maxBacklogChars ?? MAX_BACKLOG_CHARS
 
   const backlog: string[] = []
@@ -372,15 +442,6 @@ export function createTerminalRuntimeManager(): TerminalRuntimeManager {
   const sessions = new Map<string, TerminalRuntime>()
   let defaultTerminalId: string | null = null
 
-  const ensureDefaultSession = () => {
-    if (sessions.size > 0) {
-      return
-    }
-
-    const terminalId = createSession()
-    defaultTerminalId = terminalId
-  }
-
   const setDefaultFromExisting = () => {
     if (sessions.size === 0) {
       defaultTerminalId = null
@@ -404,22 +465,49 @@ export function createTerminalRuntimeManager(): TerminalRuntimeManager {
   }
 
   const createSession = (initialCols?: number, initialRows?: number) => {
-    const terminalId = generateTerminalId()
+    const sessionName = isShpoolAvailable()
+      ? generateShpoolSessionName([...sessions.keys()])
+      : generateTerminalId()
+
     const runtime = createTerminalRuntime(undefined, {
       onExit: () => {
-        handleSessionExit(terminalId)
+        handleSessionExit(sessionName)
       },
       initialCols,
       initialRows,
+      sessionName,
     })
 
-    sessions.set(terminalId, runtime)
+    sessions.set(sessionName, runtime)
 
     if (!defaultTerminalId) {
-      defaultTerminalId = terminalId
+      defaultTerminalId = sessionName
     }
 
-    return terminalId
+    return sessionName
+  }
+
+  // Recover existing shpool sessions on startup
+  if (!isE2EMockMode()) {
+    for (const sessionName of initShpool()) {
+      const runtime = createTerminalRuntime(undefined, {
+        onExit: () => handleSessionExit(sessionName),
+        sessionName,
+      })
+      sessions.set(sessionName, runtime)
+    }
+    if (sessions.size > 0) {
+      defaultTerminalId = sessions.keys().next().value ?? null
+    }
+  }
+
+  const ensureDefaultSession = () => {
+    if (sessions.size > 0) {
+      return
+    }
+
+    const terminalId = createSession()
+    defaultTerminalId = terminalId
   }
 
   const listSessions = () => {

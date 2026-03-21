@@ -43,19 +43,19 @@ test.describe("P0 terminal flow", () => {
 
     await expect.poll(async () => {
       const text = (await label.textContent()) ?? ""
-      const match = text.match(/Terminal\s+(\d+)\s*\/\s*(\d+)/)
+      const match = text.match(/Terminal\s+(\d+)[^\/]*\/\s*(\d+)/)
       return Number(match?.[2] ?? 0)
     }).toBeGreaterThan(0)
 
     const beforeText = (await label.textContent()) ?? ""
-    const beforeMatch = beforeText.match(/Terminal\s+(\d+)\s*\/\s*(\d+)/)
+    const beforeMatch = beforeText.match(/Terminal\s+(\d+)[^\/]*\/\s*(\d+)/)
     const beforeTotal = Number(beforeMatch?.[2] ?? 0)
 
     await page.getByTestId("terminal-add").click()
 
     await expect.poll(async () => {
       const text = (await label.textContent()) ?? ""
-      const match = text.match(/Terminal\s+(\d+)\s*\/\s*(\d+)/)
+      const match = text.match(/Terminal\s+(\d+)[^\/]*\/\s*(\d+)/)
       return {
         active: Number(match?.[1] ?? 0),
         total: Number(match?.[2] ?? 0),
@@ -141,7 +141,7 @@ test.describe("P0 terminal flow", () => {
     const label = page.getByTestId("terminal-active-label")
     await expect.poll(async () => {
       const text = (await label.textContent()) ?? ""
-      const match = text.match(/Terminal\s+(\d+)\s*\/\s*(\d+)/)
+      const match = text.match(/Terminal\s+(\d+)[^\/]*\/\s*(\d+)/)
       return Number(match?.[2] ?? 0)
     }).toBeGreaterThan(0)
 

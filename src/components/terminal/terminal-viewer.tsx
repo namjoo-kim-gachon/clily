@@ -47,8 +47,6 @@ const SWIPE_THRESHOLD_PX = 40
 const LAST_MANUAL_SHORTCUT_STORAGE_KEY = "terminal:last-manual-shortcut"
 const LAST_SKILL_COMMAND_STORAGE_KEY = "terminal:last-skill-command"
 const SKILL_COMMAND_PRESETS = ["/clear", "/resume", "/exit", "/simplify", "/context", "/compact", "/usage", "/model"] as const
-const IDLE_NOTIFICATION_DELAY_MS = 30_000
-const IDLE_CHECK_INTERVAL_MS = 1_000
 const TERMINAL_SCROLLBACK_LINES = 256
 
 function estimateTerminalDimensions(containerEl: HTMLElement | null, fontSize: number) {
@@ -88,62 +86,6 @@ function logDebug(message: string, meta?: Record<string, unknown>) {
   console.log(`[terminal-viewer][debug] ${message}${suffix}`)
 }
 
-function getVisibleBufferFingerprint(terminal: import("@xterm/xterm").Terminal) {
-  const buffer = terminal.buffer.active
-  const lineCount = Math.max(terminal.rows, 1)
-  const startLine = Math.max(buffer.viewportY, 0)
-  const lines: string[] = []
-
-  for (let index = 0; index < lineCount; index += 1) {
-    const line = buffer.getLine(startLine + index)
-    lines.push(line ? line.translateToString(true) : "")
-  }
-
-  return `${terminal.cols}x${terminal.rows}:${lines.join("\n")}`
-}
-
-function hashFingerprint(value: string) {
-  let hash = 0
-
-  for (let index = 0; index < value.length; index += 1) {
-    hash = (hash << 5) - hash + value.charCodeAt(index)
-    hash |= 0
-  }
-
-  return Math.abs(hash).toString(36)
-}
-
-function requestNotificationPermission() {
-  if (typeof window === "undefined" || typeof Notification === "undefined") {
-    return
-  }
-
-  if (Notification.permission !== "default") {
-    return
-  }
-
-  void Notification.requestPermission()
-}
-
-function notifyIdleTerminal(notificationKey: string) {
-  if (typeof window === "undefined" || typeof Notification === "undefined") {
-    return false
-  }
-
-  if (Notification.permission !== "granted") {
-    return false
-  }
-
-  const options: NotificationOptions = {
-    body: "화면 변화가 30초 동안 없습니다.",
-    tag: notificationKey,
-  }
-  ;(options as NotificationOptions & { renotify?: boolean }).renotify = false
-
-  new Notification("Terminal 입력 대기", options)
-
-  return true
-}
 
 function pickNextActive(
   ids: string[],
@@ -319,7 +261,9 @@ function TerminalHeader({
   return (
     <div className="flex items-center justify-between gap-2">
       <p className="text-xs text-muted-foreground" data-testid="terminal-active-label">
-        {currentIndex >= 0 ? `Terminal ${currentIndex + 1} / ${terminalIds.length}` : "Terminal"}
+        {currentIndex >= 0
+          ? `Terminal ${currentIndex + 1} (${activeTerminalId}) / ${terminalIds.length}`
+          : "Terminal"}
       </p>
       <div className="flex items-center gap-2">
         {terminalIds.length > 1 ? (
@@ -375,9 +319,11 @@ function TerminalHeader({
 type TerminalViewportProps = {
   terminalShellRef: RefObject<HTMLDivElement | null>
   containerRef: RefObject<HTMLDivElement | null>
+  isMobile: boolean
+  onScrollToBottom: () => void
 }
 
-function TerminalViewport({ terminalShellRef, containerRef }: TerminalViewportProps) {
+function TerminalViewport({ terminalShellRef, containerRef, isMobile, onScrollToBottom }: TerminalViewportProps) {
   return (
     <div
       ref={terminalShellRef}
@@ -385,8 +331,20 @@ function TerminalViewport({ terminalShellRef, containerRef }: TerminalViewportPr
       className="relative h-full min-h-0 overflow-hidden rounded-xl border border-border/80 bg-card shadow-[0_0_0_1px_var(--color-border)]"
     >
       <div className="h-full p-2">
-        <div data-testid="terminal-viewport" ref={containerRef} className="h-full w-full overflow-hidden bg-black" />
+        <div data-testid="terminal-viewport" ref={containerRef} className="h-full w-full overflow-hidden bg-black touch-none" />
       </div>
+      {isMobile && (
+        <button
+          type="button"
+          onClick={onScrollToBottom}
+          className="absolute bottom-3 right-3 flex h-7 w-7 items-center justify-center rounded-full bg-white/10 text-white/60 backdrop-blur-sm transition-colors hover:bg-white/20 hover:text-white/90"
+          title="맨 아래로 스크롤"
+        >
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" fill="currentColor" className="h-4 w-4">
+            <path fillRule="evenodd" d="M4.22 6.22a.75.75 0 0 1 1.06 0L8 8.94l2.72-2.72a.75.75 0 1 1 1.06 1.06l-3.25 3.25a.75.75 0 0 1-1.06 0L4.22 7.28a.75.75 0 0 1 0-1.06Z" clipRule="evenodd" />
+          </svg>
+        </button>
+      )}
     </div>
   )
 }
@@ -618,8 +576,9 @@ function useShortcutHandlers({
     (preset: string) => {
       dispatchShortcut({ type: "presetSelected", payload: { expression: preset } })
       dispatchShortcut({ type: "dropdownClosed" })
+      void sendSequence(preset)
     },
-    [dispatchShortcut]
+    [dispatchShortcut, sendSequence]
   )
 
   const onSpecialSubmit = useCallback<NonNullable<ComponentProps<"form">["onSubmit"]>>(
@@ -732,6 +691,7 @@ function useInitialSessionsLoad(fetchSessions: (preferredActive?: string | null)
 
 type UseTerminalRuntimeConnectionParams = {
   containerRef: RefObject<HTMLDivElement | null>
+  terminalRef: RefObject<{ scrollToBottom: () => void } | null>
   activeTerminalId: string | null
   isSessionReady: boolean
   sendInput: (data: string) => Promise<void>
@@ -743,6 +703,7 @@ type UseTerminalRuntimeConnectionParams = {
 
 function useTerminalRuntimeConnection({
   containerRef,
+  terminalRef,
   activeTerminalId,
   isSessionReady,
   sendInput,
@@ -781,6 +742,7 @@ function useTerminalRuntimeConnection({
       terminal.loadAddon(fitAddon)
       terminal.open(containerRef.current)
       fitAddon.fit()
+      terminalRef.current = { scrollToBottom: () => terminal.scrollToBottom() }
 
       // Mobile vertical scroll: intercept touch events in capture phase before xterm handles them,
       // then use terminal.scrollLines() to scroll the xterm buffer directly.
@@ -814,8 +776,6 @@ function useTerminalRuntimeConnection({
           }
         }
 
-        // Prevent xterm from handling this touch event and suppress iOS bounce
-        ev.preventDefault()
         ev.stopPropagation()
 
         const deltaY = t.clientY - touchScrollLastY
@@ -831,8 +791,7 @@ function useTerminalRuntimeConnection({
       const scrollEl = containerRef.current
       if (scrollEl) {
         scrollEl.addEventListener('touchstart', onTouchStartForScroll, { passive: true, capture: true })
-        // passive: false so we can call preventDefault() to suppress iOS bounce
-        scrollEl.addEventListener('touchmove', onTouchMoveForScroll, { passive: false, capture: true })
+        scrollEl.addEventListener('touchmove', onTouchMoveForScroll, { passive: true, capture: true })
       }
 
       const streamUrl = `/api/terminal/stream?terminalId=${encodeURIComponent(activeTerminalId)}`
@@ -881,34 +840,6 @@ function useTerminalRuntimeConnection({
           void sendInput(filtered)
         }
       })
-
-      let lastVisualFingerprint = getVisibleBufferFingerprint(terminal)
-      let lastVisualChangeAt = Date.now()
-      let lastNotificationKey: string | null = null
-
-      const idleCheckInterval = window.setInterval(() => {
-        const nextFingerprint = getVisibleBufferFingerprint(terminal)
-
-        if (nextFingerprint !== lastVisualFingerprint) {
-          lastVisualFingerprint = nextFingerprint
-          lastVisualChangeAt = Date.now()
-          lastNotificationKey = null
-          return
-        }
-
-        if (Date.now() - lastVisualChangeAt < IDLE_NOTIFICATION_DELAY_MS) {
-          return
-        }
-
-        const notificationKey = `${activeTerminalId}:${hashFingerprint(nextFingerprint)}`
-        if (notificationKey === lastNotificationKey) {
-          return
-        }
-
-        if (notifyIdleTerminal(notificationKey)) {
-          lastNotificationKey = notificationKey
-        }
-      }, IDLE_CHECK_INTERVAL_MS)
 
       lastResizeRef.current = null
 
@@ -988,7 +919,6 @@ function useTerminalRuntimeConnection({
           orientationSyncTimeout = null
         }
 
-        window.clearInterval(idleCheckInterval)
         resizeObserver.disconnect()
         window.removeEventListener("resize", onResize)
         window.removeEventListener("orientationchange", onOrientationChange)
@@ -1002,6 +932,7 @@ function useTerminalRuntimeConnection({
         terminalInputDisposable?.dispose()
         eventSource.close()
         terminal.dispose()
+        terminalRef.current = null
       }
     }
 
@@ -1016,17 +947,74 @@ function useTerminalRuntimeConnection({
   }, [activeTerminalId, containerRef, dispatchSessions, eventSourceRef, fetchSessions, isSessionReady, sendInput, sendResize])
 }
 
+function useMobileEnvironment(): boolean {
+  const [isMobile, setIsMobile] = useState(false)
+
+  useEffect(() => {
+    const mq = window.matchMedia("(hover: none) and (pointer: coarse)")
+    setIsMobile(mq.matches)
+    const handler = () => setIsMobile(mq.matches)
+    mq.addEventListener("change", handler)
+    return () => mq.removeEventListener("change", handler)
+  }, [])
+
+  return isMobile
+}
+
+function usePersistedTerminalPresets() {
+  const [manualShortcutPreset, setManualShortcutPreset] = useState<string | null>(null)
+  const [recentSkillCommand, setRecentSkillCommand] = useState<string | null>(null)
+
+  useEffect(() => {
+    try {
+      const stored = window.localStorage.getItem(LAST_MANUAL_SHORTCUT_STORAGE_KEY)
+      if (stored) setManualShortcutPreset(stored)
+    } catch {
+      logDebug("failed to load manual shortcut")
+    }
+  }, [])
+
+  useEffect(() => {
+    try {
+      const stored = window.localStorage.getItem(LAST_SKILL_COMMAND_STORAGE_KEY)
+      if (stored) setRecentSkillCommand(stored)
+    } catch {
+      logDebug("failed to load skill command")
+    }
+  }, [])
+
+  const saveManualShortcut = useCallback((nextExpression: string) => {
+    setManualShortcutPreset(nextExpression)
+    try {
+      window.localStorage.setItem(LAST_MANUAL_SHORTCUT_STORAGE_KEY, nextExpression)
+    } catch {
+      logDebug("failed to save manual shortcut")
+    }
+  }, [])
+
+  const saveSkillCommand = useCallback((nextCommand: string) => {
+    setRecentSkillCommand(nextCommand)
+    try {
+      window.localStorage.setItem(LAST_SKILL_COMMAND_STORAGE_KEY, nextCommand)
+    } catch {
+      logDebug("failed to save skill command")
+    }
+  }, [])
+
+  return { manualShortcutPreset, recentSkillCommand, saveManualShortcut, saveSkillCommand }
+}
+
 export function TerminalViewer() {
   const containerRef = useRef<HTMLDivElement | null>(null)
   const terminalShellRef = useRef<HTMLDivElement | null>(null)
+  const terminalRef = useRef<{ scrollToBottom: () => void } | null>(null)
   const eventSourceRef = useRef<EventSource | null>(null)
   const createTerminalLockRef = useRef(false)
   const [inputValue, setInputValue] = useState("")
   const [isCreatingTerminal, setIsCreatingTerminal] = useState(false)
-  const [isMobileEnvironment, setIsMobileEnvironment] = useState(false)
-  const [manualShortcutPreset, setManualShortcutPreset] = useState<string | null>(null)
-  const [recentSkillCommand, setRecentSkillCommand] = useState<string | null>(null)
   const [isSkillDropdownOpen, setIsSkillDropdownOpen] = useState(false)
+  const isMobileEnvironment = useMobileEnvironment()
+  const { manualShortcutPreset, recentSkillCommand, saveManualShortcut, saveSkillCommand } = usePersistedTerminalPresets()
   const [shortcutState, dispatchShortcut] = useReducer(shortcutInputReducer, {
     expression: "",
     isDropdownOpen: false,
@@ -1103,32 +1091,6 @@ export function TerminalViewer() {
     [activeTerminalId, postJson]
   )
 
-  const saveLastManualShortcut = useCallback((nextExpression: string) => {
-    setManualShortcutPreset(nextExpression)
-    if (typeof window === "undefined") {
-      return
-    }
-
-    try {
-      window.localStorage.setItem(LAST_MANUAL_SHORTCUT_STORAGE_KEY, nextExpression)
-    } catch {
-      logDebug("failed to save manual shortcut")
-    }
-  }, [])
-
-  const saveLastSkillCommand = useCallback((nextCommand: string) => {
-    setRecentSkillCommand(nextCommand)
-    if (typeof window === "undefined") {
-      return
-    }
-
-    try {
-      window.localStorage.setItem(LAST_SKILL_COMMAND_STORAGE_KEY, nextCommand)
-    } catch {
-      logDebug("failed to save skill command")
-    }
-  }, [])
-
   const switchTerminalByOffset = useCallback(
     (offset: number) => {
       if (terminalIds.length < 2 || !activeTerminalId) {
@@ -1147,7 +1109,6 @@ export function TerminalViewer() {
   )
 
   const createTerminal = useCallback(async () => {
-    requestNotificationPermission()
     if (createTerminalLockRef.current) {
       return
     }
@@ -1204,6 +1165,7 @@ export function TerminalViewer() {
   useInitialSessionsLoad(fetchSessions)
   useTerminalRuntimeConnection({
     containerRef,
+    terminalRef,
     activeTerminalId,
     isSessionReady,
     sendInput,
@@ -1216,7 +1178,6 @@ export function TerminalViewer() {
   const onSubmit = useCallback<NonNullable<ComponentProps<"form">["onSubmit"]>>(
     (event) => {
       event.preventDefault()
-      requestNotificationPermission()
       void sendInput(`${inputValue}\r`)
       setInputValue("")
     },
@@ -1224,53 +1185,16 @@ export function TerminalViewer() {
   )
 
   const onSubmitEnterOnly = useCallback(() => {
-    requestNotificationPermission()
     void sendInput("\r")
   }, [sendInput])
 
-  useEffect(() => {
-    if (typeof window === "undefined") {
-      return
-    }
-
-    const mobileMediaQuery = window.matchMedia("(hover: none) and (pointer: coarse)")
-    const applyMobileEnvironment = () => {
-      setIsMobileEnvironment(mobileMediaQuery.matches)
-    }
-
-    applyMobileEnvironment()
-    mobileMediaQuery.addEventListener("change", applyMobileEnvironment)
-
-    try {
-      const storedExpression = window.localStorage.getItem(LAST_MANUAL_SHORTCUT_STORAGE_KEY)
-      if (storedExpression) {
-        setManualShortcutPreset(storedExpression)
-      }
-    } catch {
-      logDebug("failed to load manual shortcut")
-    }
-
-    try {
-      const storedCommand = window.localStorage.getItem(LAST_SKILL_COMMAND_STORAGE_KEY)
-      if (storedCommand) {
-        setRecentSkillCommand(storedCommand)
-      }
-    } catch {
-      logDebug("failed to load skill command")
-    }
-
-    return () => {
-      mobileMediaQuery.removeEventListener("change", applyMobileEnvironment)
-    }
-  }, [])
 
   const { onSelectPreset, onSpecialSubmit, onExpressionChange, onToggleDropdown } = useShortcutHandlers({
     dispatchShortcut,
     expression: specialExpression,
     isExpressionManual: isSpecialExpressionManual,
     sendSequence,
-    onManualExpressionSubmitted: saveLastManualShortcut,
-    onBeforeSpecialSubmit: requestNotificationPermission,
+    onManualExpressionSubmitted: saveManualShortcut,
   })
 
   const handleToggleSpecialDropdown = useCallback(() => {
@@ -1292,12 +1216,11 @@ export function TerminalViewer() {
 
   const handleSelectSkillCommand = useCallback(
     (command: string) => {
-      requestNotificationPermission()
       void sendInput(`${command}\r`)
-      saveLastSkillCommand(command)
+      saveSkillCommand(command)
       setIsSkillDropdownOpen(false)
     },
-    [saveLastSkillCommand, sendInput]
+    [saveSkillCommand, sendInput]
   )
 
   return (
@@ -1318,7 +1241,12 @@ export function TerminalViewer() {
         onCloseTerminal={() => void closeTerminal()}
       />
 
-      <TerminalViewport terminalShellRef={terminalShellRef} containerRef={containerRef} />
+      <TerminalViewport
+        terminalShellRef={terminalShellRef}
+        containerRef={containerRef}
+        isMobile={isMobileEnvironment}
+        onScrollToBottom={() => terminalRef.current?.scrollToBottom()}
+      />
 
       {isMobileEnvironment ? (
         <>

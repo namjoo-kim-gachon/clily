@@ -1,7 +1,7 @@
 import { expect, test } from "@playwright/test"
 
 function parseActiveLabel(text: string) {
-  const match = text.match(/Terminal\s+(\d+)\s*\/\s*(\d+)/)
+  const match = text.match(/Terminal\s+(\d+)[^\/]*\/\s*(\d+)/)
   return {
     active: Number(match?.[1] ?? 0),
     total: Number(match?.[2] ?? 0),
