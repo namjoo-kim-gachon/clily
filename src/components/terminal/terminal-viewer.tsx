@@ -766,8 +766,15 @@ function useTerminalRuntimeConnection({
 
       // Block raw keydown events during IME composition to prevent Korean double-input.
       // keyCode 229 is the "Process" key browsers fire while IME is active.
+      // For Tab/Enter pressed while composing, append the key to the composition text
+      // so it arrives at the PTY atomically (avoids race between composition send and key send).
+      let pendingKeyAfterComposition = ""
       terminal.attachCustomKeyEventHandler((event) => {
-        if (event.isComposing || event.keyCode === 229) return false
+        if (event.isComposing || event.keyCode === 229) {
+          if (event.key === "Tab") pendingKeyAfterComposition = "\t"
+          else if (event.key === "Enter") pendingKeyAfterComposition = "\r"
+          return false
+        }
         return true
       })
 
@@ -873,7 +880,9 @@ function useTerminalRuntimeConnection({
       const terminalInputDisposable = terminal.onData((data: string) => {
         const filtered = data.replace(DA_RESPONSE_PATTERN, "")
         if (filtered) {
-          void sendInput(filtered)
+          const suffix = pendingKeyAfterComposition
+          pendingKeyAfterComposition = ""
+          void sendInput(suffix ? filtered + suffix : filtered)
         }
       })
 
