@@ -4,6 +4,7 @@ import { useCallback, useEffect, useReducer, useState } from "react"
 
 import type { Extension } from "@codemirror/state"
 
+import { formatBytes } from "@/lib/file-utils"
 import { getLanguageExtension } from "@/lib/file-language"
 
 import { CodeEditor } from "./code-editor"
@@ -18,11 +19,6 @@ function cachedLanguage(filename: string): Extension | null {
   return lang
 }
 
-function formatBytes(n: number): string {
-  if (n < 1024) return `${n} B`
-  if (n < 1024 * 1024) return `${(n / 1024).toFixed(1)} KB`
-  return `${(n / 1024 / 1024).toFixed(1)} MB`
-}
 
 type FileType = "text" | "image" | "binary"
 

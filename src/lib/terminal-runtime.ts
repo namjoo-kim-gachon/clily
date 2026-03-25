@@ -265,6 +265,7 @@ function sleep(ms: number) {
 }
 
 // OSC 9001 — clily editor open: \e]9001;/path/to/file\007
+// g flag is required for matchAll; matchAll doesn't mutate lastIndex on the original regex.
 const OSC_EDITOR_OPEN_PATTERN = /\x1b\]9001;([^\x07\x1b]*)(?:\x07|\x1b\\)/g
 const OSC_SEQUENCE_PATTERN = /(?:\u001b|\\)\][^\u0007\u001b]*(?:\u0007|\u001b\\)/g
 const DEVICE_ATTRIBUTES_REPLY_PATTERN = /(?:\u001b|\\)?\[[?>][0-9;]*c/g
@@ -384,9 +385,7 @@ export function createTerminalRuntime(
 
   const unsubscribeData = terminal.onData((data) => {
     // Extract OSC 9001 editor-open paths before sanitization strips them
-    OSC_EDITOR_OPEN_PATTERN.lastIndex = 0
-    let match: RegExpExecArray | null
-    while ((match = OSC_EDITOR_OPEN_PATTERN.exec(data)) !== null) {
+    for (const match of data.matchAll(OSC_EDITOR_OPEN_PATTERN)) {
       const path = match[1]
       if (path) options?.onEditorOpen?.(path)
     }
