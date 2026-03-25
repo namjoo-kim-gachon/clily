@@ -631,13 +631,23 @@ export function createTerminalRuntimeManager(): TerminalRuntimeManager {
   }
 }
 
+// Bump this whenever TerminalRuntimeManager's interface changes.
+// getTerminalRuntime() compares against the cached version and recreates the
+// singleton on mismatch — preventing stale hot-reload objects from being returned.
+const RUNTIME_VERSION = "2"
+
 declare global {
   var __clilyTerminalRuntimeManager: TerminalRuntimeManager | undefined
+  var __clilyTerminalRuntimeManagerVersion: string | undefined
 }
 
 export function getTerminalRuntime(): TerminalRuntimeManager {
-  if (!globalThis.__clilyTerminalRuntimeManager) {
+  if (
+    !globalThis.__clilyTerminalRuntimeManager ||
+    globalThis.__clilyTerminalRuntimeManagerVersion !== RUNTIME_VERSION
+  ) {
     globalThis.__clilyTerminalRuntimeManager = createTerminalRuntimeManager()
+    globalThis.__clilyTerminalRuntimeManagerVersion = RUNTIME_VERSION
   }
 
   return globalThis.__clilyTerminalRuntimeManager
