@@ -1,12 +1,15 @@
 {
-  "name": "clily",
+  "name": "@namjookim/clily",
   "version": "0.0.1",
   "type": "module",
-  "private": true,
+  "bin": {
+    "clily": "bin/clily.js"
+  },
   "scripts": {
     "dev": "next dev --turbopack",
     "build": "next build",
     "start": "next start",
+    "postinstall": "node scripts/postinstall.js",
     "lint": "eslint",
     "format": "prettier --write \"**/*.{ts,tsx}\"",
     "typecheck": "tsc --noEmit",

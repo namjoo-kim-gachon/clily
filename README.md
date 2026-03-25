@@ -6,6 +6,7 @@
 
 [![Build Workflow](https://github.com/namjoo-kim-gachon/clily/actions/workflows/build.yml/badge.svg?branch=main)](https://github.com/namjoo-kim-gachon/clily/actions/workflows/build.yml)
 [![Test Workflow](https://github.com/namjoo-kim-gachon/clily/actions/workflows/test.yml/badge.svg?branch=main)](https://github.com/namjoo-kim-gachon/clily/actions/workflows/test.yml)
+[![npm](https://img.shields.io/npm/v/@namjookim/clily)](https://www.npmjs.com/package/@namjookim/clily)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](./LICENSE)
 
 Use your browser as a mobile-friendly terminal client while keeping terminal sessions alive on the server.
@@ -23,35 +24,39 @@ Sessions are backed by [shpool](https://github.com/shell-pool/shpool), so they s
 - Install as a PWA (standalone app experience) on supported browsers.
 - Receive browser notifications when terminal output stays idle for 30 seconds.
 
-## Quick Start
-
-### 1) Install dependencies
+## Installation
 
 ```bash
-npm install
+npm install -g @namjookim/clily
 ```
 
-### 2) Install shpool (required)
+After installation, the `clily` shell function is automatically added to your `.zshrc` / `.bashrc`. Restart your terminal or run:
 
 ```bash
-# macOS
-brew install shpool
-
-# or via cargo
-cargo install shpool
+source ~/.zshrc  # or ~/.bashrc
 ```
 
-### 3) Run the app
+### Run the server
 
 ```bash
-npm run dev
+clily
 ```
 
-Open:
+Open `http://localhost:3000` in your browser. Set a custom port with the `PORT` environment variable:
 
-- `http://localhost:3000` (default Next.js dev port)
+```bash
+PORT=8080 clily
+```
 
-> The shpool daemon starts automatically on first use. Sessions are named `clily-1`, `clily-2`, etc.
+### Open a file in the editor panel
+
+From your terminal, pass a file path to the `clily` shell function:
+
+```bash
+clily ./src/app/page.tsx
+```
+
+This sends the file path to the clily editor panel via OSC sequence, opening it instantly in the browser.
 
 ## Core Usage Flow
 
@@ -119,6 +124,30 @@ Yes. The app includes a web manifest (`/manifest.webmanifest`) and registers a s
 The app requests browser notification permission and sends a notification when the active terminal view has no visible changes for 30 seconds. Identical idle states are deduplicated to avoid repeated alerts.
 
 ## For Contributors
+
+### Setup
+
+```bash
+npm install
+```
+
+Install shpool (required for terminal sessions):
+
+```bash
+# macOS
+brew install shpool
+
+# or via cargo
+cargo install shpool
+```
+
+```bash
+npm run dev
+```
+
+> The shpool daemon starts automatically on first use. Sessions are named `clily-1`, `clily-2`, etc.
+
+### Quality checks
 
 - Run quality checks:
 
