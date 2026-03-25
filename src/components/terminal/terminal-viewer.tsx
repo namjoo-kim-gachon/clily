@@ -764,6 +764,13 @@ function useTerminalRuntimeConnection({
       fitAddon.fit()
       terminalRef.current = { scrollToBottom: () => terminal.scrollToBottom() }
 
+      // Block raw keydown events during IME composition to prevent Korean double-input.
+      // keyCode 229 is the "Process" key browsers fire while IME is active.
+      terminal.attachCustomKeyEventHandler((event) => {
+        if (event.isComposing || event.keyCode === 229) return false
+        return true
+      })
+
       // Mobile vertical scroll: intercept touch events in capture phase before xterm handles them,
       // then use terminal.scrollLines() to scroll the xterm buffer directly.
       let touchScrollStartY = 0
