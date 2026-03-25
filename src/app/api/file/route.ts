@@ -7,10 +7,11 @@ const HOME = process.env.HOME ?? process.cwd()
 const MAX_TEXT_BYTES = 1_000_000
 const IMAGE_EXTS = new Set(["jpg", "jpeg", "png", "gif", "webp", "svg", "bmp", "ico"])
 
-function resolvePath(input: string): string {
+function resolvePath(input: string, cwd?: string): string {
   if (input.startsWith("~/")) return resolve(HOME, input.slice(2))
   if (input.startsWith("/")) return input
-  return resolve(HOME, input)
+  // Relative path: resolve against terminal cwd if available, otherwise HOME
+  return resolve(cwd ?? HOME, input)
 }
 
 function isBinary(buf: Buffer): boolean {
@@ -30,12 +31,13 @@ function formatBytes(n: number): string {
 export async function GET(request: Request) {
   const { searchParams } = new URL(request.url)
   const rawPath = searchParams.get("path")
+  const cwd = searchParams.get("cwd") ?? undefined
 
   if (!rawPath) {
     return NextResponse.json({ error: "path required" }, { status: 400 })
   }
 
-  const filePath = resolvePath(rawPath)
+  const filePath = resolvePath(rawPath, cwd)
 
   if (!existsSync(filePath)) {
     return NextResponse.json({ error: `File not found: ${filePath}` }, { status: 404 })

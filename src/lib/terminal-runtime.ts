@@ -35,6 +35,7 @@ export type TerminalRuntime = {
   subscribe: (listener: (data: string) => void) => () => void
   subscribeClose: (listener: () => void) => () => void
   getBacklogSnapshot: () => string[]
+  getCwd: () => string | undefined
   dispose: () => void
 }
 
@@ -45,6 +46,7 @@ export type TerminalRuntimeManager = {
   deleteSession: (terminalId: string) => void
   getDefaultTerminalId: () => string | undefined
   reattachDisconnectedSessions: () => string[]
+  getSessionCwd: (terminalId?: string) => string | undefined
 }
 
 type CreateTerminalRuntimeOptions = {
@@ -261,6 +263,8 @@ function sleep(ms: number) {
   })
 }
 
+// OSC 7 — shell reports cwd as file://hostname/path (emitted by zsh/bash prompt)
+const OSC7_CWD_PATTERN = /\x1b\]7;file:\/\/[^/]*?(\/[^\x07\x1b]*)(?:\x07|\x1b\\)/
 const OSC_SEQUENCE_PATTERN = /(?:\u001b|\\)\][^\u0007\u001b]*(?:\u0007|\u001b\\)/g
 const DEVICE_ATTRIBUTES_REPLY_PATTERN = /(?:\u001b|\\)?\[[?>][0-9;]*c/g
 const ZSH_PROMPT_WRAPPER_PATTERN = /%\{|%\}/g
@@ -377,7 +381,17 @@ export function createTerminalRuntime(
     }
   }
 
+  let cwd: string | undefined
+
   const unsubscribeData = terminal.onData((data) => {
+    const cwdMatch = OSC7_CWD_PATTERN.exec(data)
+    if (cwdMatch?.[1]) {
+      try {
+        cwd = decodeURIComponent(cwdMatch[1])
+      } catch {
+        cwd = cwdMatch[1]
+      }
+    }
     broadcast(data)
   })
 
@@ -455,6 +469,7 @@ export function createTerminalRuntime(
       return () => closeSubscribers.delete(listener)
     },
     getBacklogSnapshot: () => [...backlog],
+    getCwd: () => cwd,
     dispose: () => {
       if (disposed) {
         return
@@ -612,6 +627,7 @@ export function createTerminalRuntimeManager(): TerminalRuntimeManager {
       return defaultTerminalId ?? undefined
     },
     reattachDisconnectedSessions,
+    getSessionCwd: (terminalId?: string) => getSessionRuntime(terminalId)?.getCwd(),
   }
 }
 

@@ -1,6 +1,6 @@
 "use client"
 
-import { useCallback, useReducer, useState } from "react"
+import { useCallback, useEffect, useReducer, useRef, useState } from "react"
 
 import type { Extension } from "@codemirror/state"
 
@@ -100,6 +100,27 @@ export function EditorPanel() {
   const [pathInput, setPathInput] = useState("")
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const [cwd, setCwd] = useState<string | null>(null)
+  // Keep cwd ref so openFile always sees the latest value without re-creating the callback
+  const cwdRef = useRef<string | null>(null)
+  cwdRef.current = cwd
+
+  const fetchCwd = useCallback(async () => {
+    try {
+      const res = await fetch("/api/terminal/cwd")
+      const data = (await res.json()) as { cwd: string | null }
+      setCwd(data.cwd)
+    } catch {
+      // cwd is optional — failures are silent
+    }
+  }, [])
+
+  // Fetch cwd on mount and poll every 3 s so it stays in sync as the user navigates
+  useEffect(() => {
+    void fetchCwd()
+    const id = setInterval(() => void fetchCwd(), 3000)
+    return () => clearInterval(id)
+  }, [fetchCwd])
 
   const openFile = useCallback(async (rawPath: string) => {
     const path = rawPath.trim()
@@ -109,7 +130,10 @@ export function EditorPanel() {
     setError(null)
 
     try {
-      const res = await fetch(`/api/file?path=${encodeURIComponent(path)}`)
+      const currentCwd = cwdRef.current
+      const params = new URLSearchParams({ path })
+      if (currentCwd) params.set("cwd", currentCwd)
+      const res = await fetch(`/api/file?${params.toString()}`)
       const data = (await res.json()) as FileResponse
 
       if ("error" in data) {
@@ -175,29 +199,36 @@ export function EditorPanel() {
   return (
     <div className="flex h-full flex-col overflow-hidden">
       {/* Path input bar */}
-      <form
-        onSubmit={handleSubmit}
-        className="flex shrink-0 items-center gap-1 border-b border-border px-2 py-1.5"
-      >
-        <input
-          type="text"
-          value={pathInput}
-          onChange={(e) => setPathInput(e.target.value)}
-          placeholder="~/path/to/file  or  /absolute/path"
-          className="min-w-0 flex-1 rounded border border-input bg-background px-2 py-1 font-mono text-xs outline-none focus:ring-1 focus:ring-ring"
-          spellCheck={false}
-          autoComplete="off"
-          autoCorrect="off"
-        />
-        <Button
-          type="submit"
-          variant="outline"
-          className="h-7 shrink-0 px-2 text-xs"
-          disabled={loading}
+      <div className="shrink-0 border-b border-border">
+        <form
+          onSubmit={handleSubmit}
+          className="flex items-center gap-1 px-2 pt-1.5 pb-1"
         >
-          {loading ? "…" : "Open"}
-        </Button>
-      </form>
+          <input
+            type="text"
+            value={pathInput}
+            onChange={(e) => setPathInput(e.target.value)}
+            placeholder="relative/path  ~/path  or  /absolute/path"
+            className="min-w-0 flex-1 rounded border border-input bg-background px-2 py-1 font-mono text-xs outline-none focus:ring-1 focus:ring-ring"
+            spellCheck={false}
+            autoComplete="off"
+            autoCorrect="off"
+          />
+          <Button
+            type="submit"
+            variant="outline"
+            className="h-7 shrink-0 px-2 text-xs"
+            disabled={loading}
+          >
+            {loading ? "…" : "Open"}
+          </Button>
+        </form>
+        {cwd ? (
+          <p className="truncate px-2 pb-1 font-mono text-[10px] text-muted-foreground">
+            cwd: {cwd}
+          </p>
+        ) : null}
+      </div>
 
       {/* Error banner */}
       {error ? (
