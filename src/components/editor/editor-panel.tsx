@@ -1,17 +1,13 @@
 "use client"
 
-import { useCallback, useEffect, useReducer, useRef, useState } from "react"
+import { useCallback, useEffect, useReducer, useState } from "react"
 
 import type { Extension } from "@codemirror/state"
 
-import { Button } from "@/components/ui/button"
 import { getLanguageExtension } from "@/lib/file-language"
 
 import { CodeEditor } from "./code-editor"
 
-// Cache language Extension objects by file extension so that switching between
-// same-language files reuses the same Extension instance — this avoids unnecessary
-// CodeMirror editor recreations.
 const LANGUAGE_CACHE = new Map<string, Extension | null>()
 
 function cachedLanguage(filename: string): Extension | null {
@@ -92,29 +88,16 @@ type FileResponse =
   | { type: "binary"; size: number }
   | { error: string }
 
-type CompletionEntry = { name: string; isDir: boolean }
-
 export function EditorPanel({ externalOpen }: { externalOpen?: string | null }) {
   const [{ files, activeIndex }, dispatch] = useReducer(editorReducer, {
     files: [],
     activeIndex: -1,
   })
-  const [pathInput, setPathInput] = useState("")
-  const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
-
-  // Tab completion state
-  const [completions, setCompletions] = useState<CompletionEntry[]>([])
-  const [completionIndex, setCompletionIndex] = useState(-1)
-  const [completionBase, setCompletionBase] = useState("")
-  const completionActiveRef = useRef(false)
 
   const openFile = useCallback(async (rawPath: string) => {
     const path = rawPath.trim()
     if (!path) return
-
-    setLoading(true)
-    setError(null)
 
     try {
       const res = await fetch(`/api/file?path=${encodeURIComponent(path)}`)
@@ -143,20 +126,8 @@ export function EditorPanel({ externalOpen }: { externalOpen?: string | null }) 
       })
     } catch {
       setError("Network error")
-    } finally {
-      setLoading(false)
     }
   }, [])
-
-  const handleSubmit = useCallback(
-    (e: React.FormEvent) => {
-      e.preventDefault()
-      setCompletions([])
-      completionActiveRef.current = false
-      void openFile(pathInput)
-    },
-    [openFile, pathInput]
-  )
 
   const saveActiveFile = useCallback(async () => {
     const file = activeIndex >= 0 ? files[activeIndex] : null
@@ -180,150 +151,14 @@ export function EditorPanel({ externalOpen }: { externalOpen?: string | null }) 
     }
   }, [activeIndex, files])
 
-  const fetchCompletions = useCallback(async (partial: string) => {
-    try {
-      const res = await fetch(`/api/file/complete?path=${encodeURIComponent(partial)}`)
-      if (!res.ok) return []
-      return (await res.json()) as CompletionEntry[]
-    } catch {
-      return []
-    }
-  }, [])
-
-  const handleKeyDown = useCallback(
-    async (e: React.KeyboardEvent<HTMLInputElement>) => {
-      if (e.key === "Escape") {
-        setCompletions([])
-        completionActiveRef.current = false
-        return
-      }
-
-      if (e.key !== "Tab") return
-      e.preventDefault()
-
-      if (!completionActiveRef.current) {
-        // First Tab press: fetch completions
-        const results = await fetchCompletions(pathInput)
-        if (results.length === 0) return
-
-        const inputDir = pathInput.includes("/")
-          ? pathInput.slice(0, pathInput.lastIndexOf("/") + 1)
-          : ""
-
-        if (results.length === 1) {
-          // Single match — apply directly
-          const entry = results[0]
-          setPathInput(inputDir + entry.name + (entry.isDir ? "/" : ""))
-          setCompletions([])
-          return
-        }
-        completionActiveRef.current = true
-        setCompletionBase(inputDir)
-        setCompletions(results)
-        setCompletionIndex(0)
-        const entry = results[0]
-        setPathInput(inputDir + entry.name + (entry.isDir ? "/" : ""))
-        return
-      }
-
-      // Subsequent Tab presses: cycle through completions
-      const next = e.shiftKey
-        ? (completionIndex - 1 + completions.length) % completions.length
-        : (completionIndex + 1) % completions.length
-      setCompletionIndex(next)
-      const entry = completions[next]
-      const dir = completionBase.includes("/")
-        ? completionBase.slice(0, completionBase.lastIndexOf("/") + 1)
-        : ""
-      setPathInput(dir + entry.name + (entry.isDir ? "/" : ""))
-    },
-    [pathInput, completions, completionIndex, completionBase, fetchCompletions]
-  )
-
-  // Reset completion state when user types manually
-  const handleChange = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
-    setPathInput(e.target.value)
-    setCompletions([])
-    completionActiveRef.current = false
-  }, [])
-
-  // Open file when triggered externally (e.g. from terminal via `clily` command)
   useEffect(() => {
     if (externalOpen) void openFile(externalOpen)
   }, [externalOpen, openFile])
-
-  // Close completions when clicking outside
-  useEffect(() => {
-    if (completions.length === 0) return
-    const handler = () => {
-      setCompletions([])
-      completionActiveRef.current = false
-    }
-    document.addEventListener("click", handler)
-    return () => document.removeEventListener("click", handler)
-  }, [completions.length])
 
   const activeFile = activeIndex >= 0 ? files[activeIndex] : null
 
   return (
     <div className="flex h-full flex-col overflow-hidden">
-      {/* Path input bar */}
-      <div className="shrink-0 border-b border-border">
-        <form
-          onSubmit={handleSubmit}
-          className="flex items-center gap-1 px-2 py-1.5"
-        >
-          <div className="relative min-w-0 flex-1">
-            <input
-              type="text"
-              value={pathInput}
-              onChange={handleChange}
-              onKeyDown={(e) => void handleKeyDown(e)}
-              placeholder="path/to/file  (Tab to complete)"
-              className="w-full rounded border border-input bg-background px-2 py-1 font-mono text-xs outline-none focus:ring-1 focus:ring-ring"
-              spellCheck={false}
-              autoComplete="off"
-              autoCorrect="off"
-            />
-            {completions.length > 1 ? (
-              <div className="absolute top-full left-0 z-50 mt-0.5 max-h-48 w-full overflow-y-auto rounded border border-border bg-popover shadow-md">
-                {completions.map((entry, i) => (
-                  <button
-                    key={entry.name}
-                    type="button"
-                    onMouseDown={(e) => {
-                      e.preventDefault()
-                      const dir = completionBase.includes("/")
-                        ? completionBase.slice(0, completionBase.lastIndexOf("/") + 1)
-                        : ""
-                      setPathInput(dir + entry.name + (entry.isDir ? "/" : ""))
-                      setCompletions([])
-                      completionActiveRef.current = false
-                    }}
-                    className={`flex w-full items-center gap-1.5 px-2 py-1 text-left font-mono text-xs ${
-                      i === completionIndex
-                        ? "bg-accent text-accent-foreground"
-                        : "hover:bg-muted"
-                    }`}
-                  >
-                    <span className="text-muted-foreground">{entry.isDir ? "📁" : "📄"}</span>
-                    {entry.name}
-                  </button>
-                ))}
-              </div>
-            ) : null}
-          </div>
-          <Button
-            type="submit"
-            variant="outline"
-            className="h-7 shrink-0 px-2 text-xs"
-            disabled={loading}
-          >
-            {loading ? "…" : "Open"}
-          </Button>
-        </form>
-      </div>
-
       {/* Error banner */}
       {error ? (
         <p className="shrink-0 border-b border-border bg-destructive/10 px-3 py-1 text-xs text-destructive">
@@ -382,7 +217,7 @@ export function EditorPanel({ externalOpen }: { externalOpen?: string | null }) 
       <div className="min-h-0 flex-1">
         {!activeFile ? (
           <div className="flex h-full items-center justify-center text-xs text-muted-foreground">
-            Enter a file path above to open
+            Run <code className="mx-1 rounded bg-muted px-1 py-0.5 font-mono">clily &lt;file&gt;</code> in the terminal to open a file
           </div>
         ) : activeFile.fileType === "binary" ? (
           <div className="flex h-full flex-col items-center justify-center gap-1 text-xs text-muted-foreground">

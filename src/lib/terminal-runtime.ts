@@ -52,6 +52,7 @@ export type TerminalRuntimeManager = {
 type CreateTerminalRuntimeOptions = {
   maxBacklogChars?: number
   onExit?: () => void
+  onEditorOpen?: (path: string) => void
   initialCols?: number
   initialRows?: number
   sessionName?: string
@@ -263,6 +264,8 @@ function sleep(ms: number) {
   })
 }
 
+// OSC 9001 — clily editor open: \e]9001;/path/to/file\007
+const OSC_EDITOR_OPEN_PATTERN = /\x1b\]9001;([^\x07\x1b]*)(?:\x07|\x1b\\)/g
 const OSC_SEQUENCE_PATTERN = /(?:\u001b|\\)\][^\u0007\u001b]*(?:\u0007|\u001b\\)/g
 const DEVICE_ATTRIBUTES_REPLY_PATTERN = /(?:\u001b|\\)?\[[?>][0-9;]*c/g
 const ZSH_PROMPT_WRAPPER_PATTERN = /%\{|%\}/g
@@ -380,6 +383,13 @@ export function createTerminalRuntime(
   }
 
   const unsubscribeData = terminal.onData((data) => {
+    // Extract OSC 9001 editor-open paths before sanitization strips them
+    OSC_EDITOR_OPEN_PATTERN.lastIndex = 0
+    let match: RegExpExecArray | null
+    while ((match = OSC_EDITOR_OPEN_PATTERN.exec(data)) !== null) {
+      const path = match[1]
+      if (path) options?.onEditorOpen?.(path)
+    }
     broadcast(data)
   })
 
@@ -477,6 +487,10 @@ export function createTerminalRuntimeManager(): TerminalRuntimeManager {
   const editorOpenSubscribers = new Set<(path: string) => void>()
   let defaultTerminalId: string | null = null
 
+  const broadcastEditorOpen = (path: string) => {
+    for (const listener of editorOpenSubscribers) listener(path)
+  }
+
   const setDefaultFromExisting = () => {
     if (sessions.size === 0) {
       defaultTerminalId = null
@@ -505,9 +519,8 @@ export function createTerminalRuntimeManager(): TerminalRuntimeManager {
       : generateTerminalId()
 
     const runtime = createTerminalRuntime(undefined, {
-      onExit: () => {
-        handleSessionExit(sessionName)
-      },
+      onExit: () => handleSessionExit(sessionName),
+      onEditorOpen: (path) => broadcastEditorOpen(path),
       initialCols,
       initialRows,
       sessionName,
@@ -526,6 +539,7 @@ export function createTerminalRuntimeManager(): TerminalRuntimeManager {
     for (const sessionName of initShpool()) {
       const runtime = createTerminalRuntime(undefined, {
         onExit: () => handleSessionExit(sessionName),
+        onEditorOpen: (path) => broadcastEditorOpen(path),
         sessionName,
       })
       sessions.set(sessionName, runtime)
@@ -592,6 +606,7 @@ export function createTerminalRuntimeManager(): TerminalRuntimeManager {
       if (sessions.has(sessionName)) continue
       const runtime = createTerminalRuntime(undefined, {
         onExit: () => handleSessionExit(sessionName),
+        onEditorOpen: (path) => broadcastEditorOpen(path),
         sessionName,
         force: true,
       })
@@ -619,9 +634,7 @@ export function createTerminalRuntimeManager(): TerminalRuntimeManager {
       editorOpenSubscribers.add(listener)
       return () => editorOpenSubscribers.delete(listener)
     },
-    broadcastEditorOpen: (path) => {
-      for (const listener of editorOpenSubscribers) listener(path)
-    },
+    broadcastEditorOpen,
   }
 }
 
