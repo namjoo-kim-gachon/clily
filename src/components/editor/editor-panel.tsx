@@ -92,6 +92,8 @@ type FileResponse =
   | { type: "binary"; size: number }
   | { error: string }
 
+type CompletionEntry = { name: string; isDir: boolean }
+
 export function EditorPanel() {
   const [{ files, activeIndex }, dispatch] = useReducer(editorReducer, {
     files: [],
@@ -100,27 +102,12 @@ export function EditorPanel() {
   const [pathInput, setPathInput] = useState("")
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
-  const [cwd, setCwd] = useState<string | null>(null)
-  // Keep cwd ref so openFile always sees the latest value without re-creating the callback
-  const cwdRef = useRef<string | null>(null)
-  cwdRef.current = cwd
 
-  const fetchCwd = useCallback(async () => {
-    try {
-      const res = await fetch("/api/terminal/cwd")
-      const data = (await res.json()) as { cwd: string | null }
-      setCwd(data.cwd)
-    } catch {
-      // cwd is optional — failures are silent
-    }
-  }, [])
-
-  // Fetch cwd on mount and poll every 3 s so it stays in sync as the user navigates
-  useEffect(() => {
-    void fetchCwd()
-    const id = setInterval(() => void fetchCwd(), 3000)
-    return () => clearInterval(id)
-  }, [fetchCwd])
+  // Tab completion state
+  const [completions, setCompletions] = useState<CompletionEntry[]>([])
+  const [completionIndex, setCompletionIndex] = useState(-1)
+  const [completionBase, setCompletionBase] = useState("")
+  const completionActiveRef = useRef(false)
 
   const openFile = useCallback(async (rawPath: string) => {
     const path = rawPath.trim()
@@ -130,10 +117,7 @@ export function EditorPanel() {
     setError(null)
 
     try {
-      const currentCwd = cwdRef.current
-      const params = new URLSearchParams({ path })
-      if (currentCwd) params.set("cwd", currentCwd)
-      const res = await fetch(`/api/file?${params.toString()}`)
+      const res = await fetch(`/api/file?path=${encodeURIComponent(path)}`)
       const data = (await res.json()) as FileResponse
 
       if ("error" in data) {
@@ -167,6 +151,8 @@ export function EditorPanel() {
   const handleSubmit = useCallback(
     (e: React.FormEvent) => {
       e.preventDefault()
+      setCompletions([])
+      completionActiveRef.current = false
       void openFile(pathInput)
     },
     [openFile, pathInput]
@@ -194,6 +180,84 @@ export function EditorPanel() {
     }
   }, [activeIndex, files])
 
+  const fetchCompletions = useCallback(async (partial: string) => {
+    try {
+      const res = await fetch(`/api/file/complete?path=${encodeURIComponent(partial)}`)
+      if (!res.ok) return []
+      return (await res.json()) as CompletionEntry[]
+    } catch {
+      return []
+    }
+  }, [])
+
+  const handleKeyDown = useCallback(
+    async (e: React.KeyboardEvent<HTMLInputElement>) => {
+      if (e.key === "Escape") {
+        setCompletions([])
+        completionActiveRef.current = false
+        return
+      }
+
+      if (e.key !== "Tab") return
+      e.preventDefault()
+
+      if (!completionActiveRef.current) {
+        // First Tab press: fetch completions
+        const results = await fetchCompletions(pathInput)
+        if (results.length === 0) return
+
+        const inputDir = pathInput.includes("/")
+          ? pathInput.slice(0, pathInput.lastIndexOf("/") + 1)
+          : ""
+
+        if (results.length === 1) {
+          // Single match — apply directly
+          const entry = results[0]
+          setPathInput(inputDir + entry.name + (entry.isDir ? "/" : ""))
+          setCompletions([])
+          return
+        }
+        completionActiveRef.current = true
+        setCompletionBase(inputDir)
+        setCompletions(results)
+        setCompletionIndex(0)
+        const entry = results[0]
+        setPathInput(inputDir + entry.name + (entry.isDir ? "/" : ""))
+        return
+      }
+
+      // Subsequent Tab presses: cycle through completions
+      const next = e.shiftKey
+        ? (completionIndex - 1 + completions.length) % completions.length
+        : (completionIndex + 1) % completions.length
+      setCompletionIndex(next)
+      const entry = completions[next]
+      const dir = completionBase.includes("/")
+        ? completionBase.slice(0, completionBase.lastIndexOf("/") + 1)
+        : ""
+      setPathInput(dir + entry.name + (entry.isDir ? "/" : ""))
+    },
+    [pathInput, completions, completionIndex, completionBase, fetchCompletions]
+  )
+
+  // Reset completion state when user types manually
+  const handleChange = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
+    setPathInput(e.target.value)
+    setCompletions([])
+    completionActiveRef.current = false
+  }, [])
+
+  // Close completions when clicking outside
+  useEffect(() => {
+    if (completions.length === 0) return
+    const handler = () => {
+      setCompletions([])
+      completionActiveRef.current = false
+    }
+    document.addEventListener("click", handler)
+    return () => document.removeEventListener("click", handler)
+  }, [completions.length])
+
   const activeFile = activeIndex >= 0 ? files[activeIndex] : null
 
   return (
@@ -202,18 +266,48 @@ export function EditorPanel() {
       <div className="shrink-0 border-b border-border">
         <form
           onSubmit={handleSubmit}
-          className="flex items-center gap-1 px-2 pt-1.5 pb-1"
+          className="flex items-center gap-1 px-2 py-1.5"
         >
-          <input
-            type="text"
-            value={pathInput}
-            onChange={(e) => setPathInput(e.target.value)}
-            placeholder="relative/path  ~/path  or  /absolute/path"
-            className="min-w-0 flex-1 rounded border border-input bg-background px-2 py-1 font-mono text-xs outline-none focus:ring-1 focus:ring-ring"
-            spellCheck={false}
-            autoComplete="off"
-            autoCorrect="off"
-          />
+          <div className="relative min-w-0 flex-1">
+            <input
+              type="text"
+              value={pathInput}
+              onChange={handleChange}
+              onKeyDown={(e) => void handleKeyDown(e)}
+              placeholder="path/to/file  (Tab to complete)"
+              className="w-full rounded border border-input bg-background px-2 py-1 font-mono text-xs outline-none focus:ring-1 focus:ring-ring"
+              spellCheck={false}
+              autoComplete="off"
+              autoCorrect="off"
+            />
+            {completions.length > 1 ? (
+              <div className="absolute top-full left-0 z-50 mt-0.5 max-h-48 w-full overflow-y-auto rounded border border-border bg-popover shadow-md">
+                {completions.map((entry, i) => (
+                  <button
+                    key={entry.name}
+                    type="button"
+                    onMouseDown={(e) => {
+                      e.preventDefault()
+                      const dir = completionBase.includes("/")
+                        ? completionBase.slice(0, completionBase.lastIndexOf("/") + 1)
+                        : ""
+                      setPathInput(dir + entry.name + (entry.isDir ? "/" : ""))
+                      setCompletions([])
+                      completionActiveRef.current = false
+                    }}
+                    className={`flex w-full items-center gap-1.5 px-2 py-1 text-left font-mono text-xs ${
+                      i === completionIndex
+                        ? "bg-accent text-accent-foreground"
+                        : "hover:bg-muted"
+                    }`}
+                  >
+                    <span className="text-muted-foreground">{entry.isDir ? "📁" : "📄"}</span>
+                    {entry.name}
+                  </button>
+                ))}
+              </div>
+            ) : null}
+          </div>
           <Button
             type="submit"
             variant="outline"
@@ -223,11 +317,6 @@ export function EditorPanel() {
             {loading ? "…" : "Open"}
           </Button>
         </form>
-        {cwd ? (
-          <p className="truncate px-2 pb-1 font-mono text-[10px] text-muted-foreground">
-            cwd: {cwd}
-          </p>
-        ) : null}
       </div>
 
       {/* Error banner */}
