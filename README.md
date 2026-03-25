@@ -26,6 +26,18 @@ Sessions are backed by [shpool](https://github.com/shell-pool/shpool), so they s
 
 ## Installation
 
+### 1) Install shpool (required)
+
+```bash
+# macOS
+brew install shpool
+
+# or via cargo
+cargo install shpool
+```
+
+### 2) Install clily
+
 ```bash
 npm install -g @namjookim/clily
 ```
