@@ -44,6 +44,7 @@ export type TerminalRuntimeManager = {
   getSessionRuntime: (terminalId?: string) => TerminalRuntime | undefined
   deleteSession: (terminalId: string) => void
   getDefaultTerminalId: () => string | undefined
+  reattachDisconnectedSessions: () => string[]
 }
 
 type CreateTerminalRuntimeOptions = {
@@ -52,6 +53,7 @@ type CreateTerminalRuntimeOptions = {
   initialCols?: number
   initialRows?: number
   sessionName?: string
+  force?: boolean
 }
 
 function logDebug(message: string, meta?: Record<string, unknown>) {
@@ -128,12 +130,7 @@ function initShpool(): string[] {
       if (result.status !== 0 || !result.stdout) return []
     }
 
-    return (result.stdout ?? "")
-      .trim()
-      .split("\n")
-      .slice(1)
-      .map((line) => line.trim().split(/\s+/)[0])
-      .filter((name): name is string => !!name && /^clily-\d+$/.test(name))
+    return parseShpoolSessionNames(result.stdout ?? "")
   } catch {
     shpoolAvailable = false
     return []
@@ -141,12 +138,34 @@ function initShpool(): string[] {
 }
 
 function generateShpoolSessionName(existing: string[]): string {
-  const numbers = existing
-    .map((name) => name.match(/^clily-(\d+)$/)?.[1])
-    .filter((n): n is string => n !== undefined)
-    .map((n) => parseInt(n, 10))
-  const maxNum = numbers.length > 0 ? Math.max(...numbers) : 0
-  return `clily-${maxNum + 1}`
+  const numbers = new Set(
+    existing
+      .map((name) => name.match(/^clily-(\d+)$/)?.[1])
+      .filter((n): n is string => n !== undefined)
+      .map((n) => parseInt(n, 10))
+  )
+  let n = 1
+  while (numbers.has(n)) n++
+  return `clily-${n}`
+}
+
+function parseShpoolSessionNames(stdout: string): string[] {
+  return stdout
+    .trim()
+    .split("\n")
+    .slice(1)
+    .map((line) => line.trim().split(/\s+/)[0])
+    .filter((name): name is string => !!name && /^clily-\d+$/.test(name))
+}
+
+function listShpoolSessions(): string[] {
+  try {
+    const result = spawnSync("shpool", ["list"], { encoding: "utf8", timeout: 2000 })
+    if (result.error || result.status !== 0 || !result.stdout) return []
+    return parseShpoolSessionNames(result.stdout)
+  } catch {
+    return []
+  }
 }
 
 function spawnPtyAdapter(
@@ -180,8 +199,9 @@ function spawnPtyAdapter(
   }
 }
 
-function createShpoolTerminalAdapter(sessionName: string, cols = 120, rows = 40): TerminalAdapter {
-  return spawnPtyAdapter("shpool", ["attach", sessionName], cols, rows, { adapter: "shpool", sessionName })
+function createShpoolTerminalAdapter(sessionName: string, cols = 120, rows = 40, force = false): TerminalAdapter {
+  const args = force ? ["attach", "--force", sessionName] : ["attach", sessionName]
+  return spawnPtyAdapter("shpool", args, cols, rows, { adapter: "shpool", sessionName })
 }
 
 function createTerminalAdapter(shell: string, cols = 120, rows = 40): TerminalAdapter {
@@ -244,6 +264,9 @@ function sleep(ms: number) {
 const OSC_SEQUENCE_PATTERN = /(?:\u001b|\\)\][^\u0007\u001b]*(?:\u0007|\u001b\\)/g
 const DEVICE_ATTRIBUTES_REPLY_PATTERN = /(?:\u001b|\\)?\[[?>][0-9;]*c/g
 const ZSH_PROMPT_WRAPPER_PATTERN = /%\{|%\}/g
+// Strip \r\n immediately after clear-screen (home+erase): without this the cursor lands on
+// line 2 before the first prompt, producing a blank line at the top of the terminal.
+const CLEAR_SCREEN_NEWLINE_PATTERN = /(\u001b\[H\u001b\[J)\r?\n/g
 const MAX_SANITIZE_CARRY_CHARS = 512
 
 function sanitizeTerminalOutput(data: string) {
@@ -251,17 +274,19 @@ function sanitizeTerminalOutput(data: string) {
     .replace(OSC_SEQUENCE_PATTERN, "")
     .replace(DEVICE_ATTRIBUTES_REPLY_PATTERN, "")
     .replace(ZSH_PROMPT_WRAPPER_PATTERN, "")
+    .replace(CLEAR_SCREEN_NEWLINE_PATTERN, "$1")
 
+  // JS \s matches \r\n, so use [^\r\n]* to avoid consuming the trailing \r of a PROMPT_CR sequence.
   return withoutControlReplies
-    .replace(/(^|[\r\n])%\s*(\r?\n|\r|$)/g, "$1")
-    .replace(/^%\s*$/g, "")
+    .replace(/(^|[\r\n])%[^\r\n]*(\r?\n|\r|$)/g, "$1")
+    .replace(/^%[^\r\n]*$/g, "")
 }
 
 function extractSanitizeCarryTail(data: string) {
   const matches = [
     data.match(/(?:\u001b|\\)?\][^\u0007\u001b]*$/),
     data.match(/(?:\u001b|\\)?\[[?>][0-9;]*$/),
-    data.match(/(^|[\r\n])%\s*$/),
+    data.match(/(^|[\r\n])%[^\r\n]*$/),
   ]
 
   let carryStart = -1
@@ -300,7 +325,8 @@ export function createTerminalRuntime(
         ? createShpoolTerminalAdapter(
             options?.sessionName ?? "clily-1",
             options?.initialCols,
-            options?.initialRows
+            options?.initialRows,
+            options?.force
           )
         : createTerminalAdapter(resolveShell(), options?.initialCols, options?.initialRows))
   const maxBacklogChars = options?.maxBacklogChars ?? MAX_BACKLOG_CHARS
@@ -316,6 +342,12 @@ export function createTerminalRuntime(
   let sanitizeCarry = ""
 
   const appendBacklog = (data: string) => {
+    // Skip leading whitespace-only chunks (e.g. the bare \r\n a new zsh session emits)
+    // so they don't appear as a blank line when the backlog is replayed.
+    if (backlogChars === 0 && /^[\r\n\s]*$/.test(data)) {
+      return
+    }
+
     backlog.push(data)
     backlogChars += data.length
 
@@ -487,7 +519,6 @@ export function createTerminalRuntimeManager(): TerminalRuntimeManager {
     return sessionName
   }
 
-  // Recover existing shpool sessions on startup
   if (!isE2EMockMode()) {
     for (const sessionName of initShpool()) {
       const runtime = createTerminalRuntime(undefined, {
@@ -497,7 +528,7 @@ export function createTerminalRuntimeManager(): TerminalRuntimeManager {
       sessions.set(sessionName, runtime)
     }
     if (sessions.size > 0) {
-      defaultTerminalId = sessions.keys().next().value ?? null
+      defaultTerminalId = [...sessions.keys()].sort()[0]
     }
   }
 
@@ -512,7 +543,7 @@ export function createTerminalRuntimeManager(): TerminalRuntimeManager {
 
   const listSessions = () => {
     ensureDefaultSession()
-    return [...sessions.keys()]
+    return [...sessions.keys()].sort()
   }
 
   const getSessionRuntime = (terminalId?: string) => {
@@ -541,6 +572,34 @@ export function createTerminalRuntimeManager(): TerminalRuntimeManager {
     setDefaultFromExisting()
   }
 
+  const reattachDisconnectedSessions = (): string[] => {
+    if (!isShpoolAvailable()) return []
+
+    const shpoolSessions = new Set(listShpoolSessions())
+    const result: string[] = []
+
+    for (const sessionName of [...sessions.keys()]) {
+      if (!shpoolSessions.has(sessionName)) {
+        sessions.get(sessionName)?.dispose()
+        sessions.delete(sessionName)
+      }
+    }
+
+    for (const sessionName of shpoolSessions) {
+      if (sessions.has(sessionName)) continue
+      const runtime = createTerminalRuntime(undefined, {
+        onExit: () => handleSessionExit(sessionName),
+        sessionName,
+        force: true,
+      })
+      sessions.set(sessionName, runtime)
+      result.push(sessionName)
+    }
+
+    setDefaultFromExisting()
+    return result
+  }
+
   ensureDefaultSession()
 
   return {
@@ -552,6 +611,7 @@ export function createTerminalRuntimeManager(): TerminalRuntimeManager {
       ensureDefaultSession()
       return defaultTerminalId ?? undefined
     },
+    reattachDisconnectedSessions,
   }
 }
 

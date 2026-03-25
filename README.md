@@ -61,7 +61,7 @@ Open:
 4. Switch sessions:
    - Mobile: swipe left/right on the terminal area.
    - Desktop: use previous/next buttons.
-   - The header shows the current session name, e.g. `Terminal 1 (clily-1) / 2`.
+   - The header shows the current session name, e.g. `Session[clily-1] 1 / 2`.
 5. For shortcut input (for example `Ctrl+B D`), use the shortcut field and submit.
 6. If you reload or reconnect, the app restores all existing shpool sessions automatically.
 7. From any other terminal, attach to the same session with:

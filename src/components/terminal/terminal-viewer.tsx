@@ -243,18 +243,22 @@ type TerminalHeaderProps = {
   terminalIds: string[]
   activeTerminalId: string | null
   isCreatingTerminal: boolean
+  isReattaching: boolean
   onSwitchOffset: (offset: number) => void
   onCreateTerminal: () => void
   onCloseTerminal: () => void
+  onReattach: () => void
 }
 
 function TerminalHeader({
   terminalIds,
   activeTerminalId,
   isCreatingTerminal,
+  isReattaching,
   onSwitchOffset,
   onCreateTerminal,
   onCloseTerminal,
+  onReattach,
 }: TerminalHeaderProps) {
   const currentIndex = activeTerminalId ? terminalIds.indexOf(activeTerminalId) : -1
 
@@ -262,8 +266,8 @@ function TerminalHeader({
     <div className="flex items-center justify-between gap-2">
       <p className="text-xs text-muted-foreground" data-testid="terminal-active-label">
         {currentIndex >= 0
-          ? `Terminal ${currentIndex + 1} (${activeTerminalId}) / ${terminalIds.length}`
-          : "Terminal"}
+          ? `Session[${activeTerminalId}] ${currentIndex + 1} / ${terminalIds.length}`
+          : "Session"}
       </p>
       <div className="flex items-center gap-2">
         {terminalIds.length > 1 ? (
@@ -290,6 +294,18 @@ function TerminalHeader({
             </Button>
           </>
         ) : null}
+        <Button
+          type="button"
+          variant="outline"
+          data-testid="terminal-reattach"
+          aria-label="Reattach disconnected sessions"
+          onClick={onReattach}
+          disabled={isReattaching}
+          className="h-9 min-w-9 px-3"
+          title="Reattach disconnected sessions"
+        >
+          {isReattaching ? "…" : "⟳"}
+        </Button>
         <Button
           type="button"
           variant="outline"
@@ -338,7 +354,7 @@ function TerminalViewport({ terminalShellRef, containerRef, isMobile, onScrollTo
           type="button"
           onClick={onScrollToBottom}
           className="absolute bottom-3 right-3 flex h-7 w-7 items-center justify-center rounded-full bg-white/10 text-white/60 backdrop-blur-sm transition-colors hover:bg-white/20 hover:text-white/90"
-          title="맨 아래로 스크롤"
+          title="Scroll to bottom"
         >
           <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" fill="currentColor" className="h-4 w-4">
             <path fillRule="evenodd" d="M4.22 6.22a.75.75 0 0 1 1.06 0L8 8.94l2.72-2.72a.75.75 0 1 1 1.06 1.06l-3.25 3.25a.75.75 0 0 1-1.06 0L4.22 7.28a.75.75 0 0 1 0-1.06Z" clipRule="evenodd" />
@@ -1012,6 +1028,7 @@ export function TerminalViewer() {
   const createTerminalLockRef = useRef(false)
   const [inputValue, setInputValue] = useState("")
   const [isCreatingTerminal, setIsCreatingTerminal] = useState(false)
+  const [isReattaching, setIsReattaching] = useState(false)
   const [isSkillDropdownOpen, setIsSkillDropdownOpen] = useState(false)
   const isMobileEnvironment = useMobileEnvironment()
   const { manualShortcutPreset, recentSkillCommand, saveManualShortcut, saveSkillCommand } = usePersistedTerminalPresets()
@@ -1143,7 +1160,7 @@ export function TerminalViewer() {
       return
     }
 
-    if (!window.confirm("이 터미널을 닫으시겠습니까?")) {
+    if (!window.confirm("Close this terminal?")) {
       return
     }
 
@@ -1160,6 +1177,18 @@ export function TerminalViewer() {
 
     dispatchSessions({ type: "activeTerminalRemoved", payload: { terminalId: activeTerminalId } })
   }, [activeTerminalId, dispatchSessions])
+
+  const reattachSessions = useCallback(async () => {
+    if (isReattaching) return
+    setIsReattaching(true)
+    try {
+      const response = await fetch("/api/terminal/reattach", { method: "POST" })
+      if (!response.ok) return
+      await fetchSessions()
+    } finally {
+      setIsReattaching(false)
+    }
+  }, [isReattaching, fetchSessions])
 
   useTouchSwipeNavigation({ terminalShellRef, switchTerminalByOffset })
   useInitialSessionsLoad(fetchSessions)
@@ -1236,9 +1265,11 @@ export function TerminalViewer() {
         terminalIds={terminalIds}
         activeTerminalId={activeTerminalId}
         isCreatingTerminal={isCreatingTerminal}
+        isReattaching={isReattaching}
         onSwitchOffset={switchTerminalByOffset}
         onCreateTerminal={() => void createTerminal()}
         onCloseTerminal={() => void closeTerminal()}
+        onReattach={() => void reattachSessions()}
       />
 
       <TerminalViewport
