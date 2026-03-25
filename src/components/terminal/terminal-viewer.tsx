@@ -768,11 +768,25 @@ function useTerminalRuntimeConnection({
       // keyCode 229 is the "Process" key browsers fire while IME is active.
       // For Tab/Enter pressed while composing, append the key to the composition text
       // so it arrives at the PTY atomically (avoids race between composition send and key send).
+      //
+      // Chrome re-fires the keydown (isComposing=false) right after compositionend. This re-fire
+      // can be the original Tab/Enter key OR the committed Korean character — either way it would
+      // cause a duplicate send. We block exactly one keydown after each composition-ending key.
       let pendingKeyAfterComposition = ""
+      let blockNextKeyDownAfterComposition = false
+
+      terminal.textarea?.addEventListener("compositionend", () => {
+        if (pendingKeyAfterComposition) blockNextKeyDownAfterComposition = true
+      }, { capture: true })
+
       terminal.attachCustomKeyEventHandler((event) => {
         if (event.isComposing || event.keyCode === 229) {
           if (event.key === "Tab") pendingKeyAfterComposition = "\t"
           else if (event.key === "Enter") pendingKeyAfterComposition = "\r"
+          return false
+        }
+        if (blockNextKeyDownAfterComposition) {
+          blockNextKeyDownAfterComposition = false
           return false
         }
         return true
