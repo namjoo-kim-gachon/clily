@@ -11,6 +11,8 @@ import {
   useState,
 } from "react"
 
+import { useMobileEnvironment } from "@/hooks/use-mobile-environment"
+
 import "@xterm/xterm/css/xterm.css"
 
 import { Button } from "@/components/ui/button"
@@ -963,20 +965,6 @@ function useTerminalRuntimeConnection({
   }, [activeTerminalId, containerRef, dispatchSessions, eventSourceRef, fetchSessions, isSessionReady, sendInput, sendResize])
 }
 
-function useMobileEnvironment(): boolean {
-  const [isMobile, setIsMobile] = useState(false)
-
-  useEffect(() => {
-    const mq = window.matchMedia("(hover: none) and (pointer: coarse)")
-    setIsMobile(mq.matches)
-    const handler = () => setIsMobile(mq.matches)
-    mq.addEventListener("change", handler)
-    return () => mq.removeEventListener("change", handler)
-  }, [])
-
-  return isMobile
-}
-
 function usePersistedTerminalPresets() {
   const [manualShortcutPreset, setManualShortcutPreset] = useState<string | null>(null)
   const [recentSkillCommand, setRecentSkillCommand] = useState<string | null>(null)
@@ -1020,7 +1008,7 @@ function usePersistedTerminalPresets() {
   return { manualShortcutPreset, recentSkillCommand, saveManualShortcut, saveSkillCommand }
 }
 
-export function TerminalViewer() {
+export function TerminalViewer({ embedded = false }: { embedded?: boolean }) {
   const containerRef = useRef<HTMLDivElement | null>(null)
   const terminalShellRef = useRef<HTMLDivElement | null>(null)
   const terminalRef = useRef<{ scrollToBottom: () => void } | null>(null)
@@ -1258,7 +1246,9 @@ export function TerminalViewer() {
       className={
         isMobileEnvironment
           ? "fixed inset-0 box-border grid grid-rows-[auto_minmax(0,1fr)_auto_auto_auto] gap-2 px-[max(0.5rem,env(safe-area-inset-left))] pt-[max(0.5rem,env(safe-area-inset-top))] pr-[max(0.5rem,env(safe-area-inset-right))] pb-[max(0.5rem,env(safe-area-inset-bottom))] sm:gap-3"
-          : "fixed inset-0 box-border grid grid-rows-[auto_minmax(0,1fr)] gap-2 px-[max(0.5rem,env(safe-area-inset-left))] pt-[max(0.5rem,env(safe-area-inset-top))] pr-[max(0.5rem,env(safe-area-inset-right))] pb-[max(0.5rem,env(safe-area-inset-bottom))] h-dvh"
+          : embedded
+            ? "h-full box-border grid grid-rows-[auto_minmax(0,1fr)] gap-2 p-2"
+            : "fixed inset-0 box-border grid grid-rows-[auto_minmax(0,1fr)] gap-2 px-[max(0.5rem,env(safe-area-inset-left))] pt-[max(0.5rem,env(safe-area-inset-top))] pr-[max(0.5rem,env(safe-area-inset-right))] pb-[max(0.5rem,env(safe-area-inset-bottom))] h-dvh"
       }
     >
       <TerminalHeader

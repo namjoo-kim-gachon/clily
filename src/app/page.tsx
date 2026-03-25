@@ -1,5 +1,29 @@
+"use client"
+
+import { Group as PanelGroup, Panel, Separator as PanelResizeHandle } from "react-resizable-panels"
+
+import { EditorPanel } from "@/components/editor/editor-panel"
 import { TerminalViewer } from "@/components/terminal/terminal-viewer"
+import { useMobileEnvironment } from "@/hooks/use-mobile-environment"
 
 export default function Page() {
-  return <TerminalViewer />
+  const isMobile = useMobileEnvironment()
+
+  if (isMobile) {
+    return <TerminalViewer />
+  }
+
+  return (
+    <div className="fixed inset-0 h-dvh">
+      <PanelGroup orientation="horizontal">
+        <Panel defaultSize={50} minSize={20}>
+          <TerminalViewer embedded />
+        </Panel>
+        <PanelResizeHandle className="w-px bg-border transition-colors hover:w-1 hover:bg-ring data-[resize-handle-active]:w-1 data-[resize-handle-active]:bg-ring" />
+        <Panel defaultSize={50} minSize={15}>
+          <EditorPanel />
+        </Panel>
+      </PanelGroup>
+    </div>
+  )
 }
