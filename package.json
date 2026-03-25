@@ -1,6 +1,10 @@
 {
   "name": "@namjookim/clily",
   "version": "0.0.1",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/namjoo-kim-gachon/clily.git"
+  },
   "type": "module",
   "bin": {
     "clily": "bin/clily.js"
