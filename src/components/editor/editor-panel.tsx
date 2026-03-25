@@ -94,7 +94,7 @@ type FileResponse =
 
 type CompletionEntry = { name: string; isDir: boolean }
 
-export function EditorPanel() {
+export function EditorPanel({ externalOpen }: { externalOpen?: string | null }) {
   const [{ files, activeIndex }, dispatch] = useReducer(editorReducer, {
     files: [],
     activeIndex: -1,
@@ -246,6 +246,11 @@ export function EditorPanel() {
     setCompletions([])
     completionActiveRef.current = false
   }, [])
+
+  // Open file when triggered externally (e.g. from terminal via `clily` command)
+  useEffect(() => {
+    if (externalOpen) void openFile(externalOpen)
+  }, [externalOpen, openFile])
 
   // Close completions when clicking outside
   useEffect(() => {

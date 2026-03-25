@@ -26,6 +26,7 @@ export async function GET(request: Request) {
     start(controller) {
       let closed = false
       let keepalive: ReturnType<typeof setInterval> | null = null
+      let unsubEditorOpen: (() => void) | null = null
 
       const safeEnqueue = (payload: string, reason: string) => {
         if (closed) {
@@ -83,12 +84,19 @@ export async function GET(request: Request) {
           console.error("[terminal-stream] close unsubscribe failed", { terminalId, reason, error })
         }
 
+        unsubEditorOpen?.()
+        unsubEditorOpen = null
+
         try {
           controller.close()
         } catch (error) {
           console.error("[terminal-stream] close failed", { terminalId, reason, error })
         }
       }
+
+      unsubEditorOpen = runtimeManager.subscribeEditorOpen((path) => {
+        safeEnqueue(sseEvent("editor.open", JSON.stringify({ path })), "editor.open")
+      })
 
       for (const chunk of runtime.getBacklogSnapshot()) {
         const ok = safeEnqueue(sseEvent("output", encodeTerminalOutputEvent(chunk)), "backlog replay")

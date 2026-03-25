@@ -717,6 +717,7 @@ type UseTerminalRuntimeConnectionParams = {
   fetchSessions: (preferredActive?: string | null) => Promise<void>
   dispatchSessions: (action: TerminalSessionsAction) => void
   eventSourceRef: RefObject<EventSource | null>
+  onOpenFile?: (path: string) => void
 }
 
 function useTerminalRuntimeConnection({
@@ -729,6 +730,7 @@ function useTerminalRuntimeConnection({
   fetchSessions,
   dispatchSessions,
   eventSourceRef,
+  onOpenFile,
 }: UseTerminalRuntimeConnectionParams) {
   const lastResizeRef = useRef<{ cols: number; rows: number } | null>(null)
 
@@ -840,6 +842,15 @@ function useTerminalRuntimeConnection({
         })
 
         void fetchSessions()
+      })
+
+      eventSource.addEventListener("editor.open", (event) => {
+        try {
+          const parsed = JSON.parse((event as MessageEvent).data) as { path: string }
+          if (parsed.path) onOpenFile?.(parsed.path)
+        } catch {
+          // ignore malformed events
+        }
       })
 
       eventSource.addEventListener("error", () => {
@@ -1008,7 +1019,7 @@ function usePersistedTerminalPresets() {
   return { manualShortcutPreset, recentSkillCommand, saveManualShortcut, saveSkillCommand }
 }
 
-export function TerminalViewer({ embedded = false }: { embedded?: boolean }) {
+export function TerminalViewer({ embedded = false, onOpenFile }: { embedded?: boolean; onOpenFile?: (path: string) => void }) {
   const containerRef = useRef<HTMLDivElement | null>(null)
   const terminalShellRef = useRef<HTMLDivElement | null>(null)
   const terminalRef = useRef<{ scrollToBottom: () => void } | null>(null)
@@ -1190,6 +1201,7 @@ export function TerminalViewer({ embedded = false }: { embedded?: boolean }) {
     fetchSessions,
     dispatchSessions,
     eventSourceRef,
+    onOpenFile,
   })
 
   const onSubmit = useCallback<NonNullable<ComponentProps<"form">["onSubmit"]>>(

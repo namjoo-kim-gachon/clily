@@ -45,6 +45,8 @@ export type TerminalRuntimeManager = {
   deleteSession: (terminalId: string) => void
   getDefaultTerminalId: () => string | undefined
   reattachDisconnectedSessions: () => string[]
+  subscribeEditorOpen: (listener: (path: string) => void) => () => void
+  broadcastEditorOpen: (path: string) => void
 }
 
 type CreateTerminalRuntimeOptions = {
@@ -472,6 +474,7 @@ export function createTerminalRuntime(
 
 export function createTerminalRuntimeManager(): TerminalRuntimeManager {
   const sessions = new Map<string, TerminalRuntime>()
+  const editorOpenSubscribers = new Set<(path: string) => void>()
   let defaultTerminalId: string | null = null
 
   const setDefaultFromExisting = () => {
@@ -612,13 +615,20 @@ export function createTerminalRuntimeManager(): TerminalRuntimeManager {
       return defaultTerminalId ?? undefined
     },
     reattachDisconnectedSessions,
+    subscribeEditorOpen: (listener) => {
+      editorOpenSubscribers.add(listener)
+      return () => editorOpenSubscribers.delete(listener)
+    },
+    broadcastEditorOpen: (path) => {
+      for (const listener of editorOpenSubscribers) listener(path)
+    },
   }
 }
 
 // Bump this whenever TerminalRuntimeManager's interface changes.
 // getTerminalRuntime() compares against the cached version and recreates the
 // singleton on mismatch — preventing stale hot-reload objects from being returned.
-const RUNTIME_VERSION = "3"
+const RUNTIME_VERSION = "4"
 
 declare global {
   var __clilyTerminalRuntimeManager: TerminalRuntimeManager | undefined
