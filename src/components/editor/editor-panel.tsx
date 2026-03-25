@@ -2,23 +2,14 @@
 
 import { useCallback, useEffect, useReducer, useState } from "react"
 
-import type { Extension } from "@codemirror/state"
+import dynamic from "next/dynamic"
 
 import { formatBytes } from "@/lib/file-utils"
-import { getLanguageExtension } from "@/lib/file-language"
 
-import { CodeEditor } from "./code-editor"
-
-const LANGUAGE_CACHE = new Map<string, Extension | null>()
-
-function cachedLanguage(filename: string): Extension | null {
-  const ext = filename.split(".").pop()?.toLowerCase() ?? ""
-  if (LANGUAGE_CACHE.has(ext)) return LANGUAGE_CACHE.get(ext) as Extension | null
-  const lang = getLanguageExtension(filename)
-  LANGUAGE_CACHE.set(ext, lang)
-  return lang
-}
-
+const CodeEditor = dynamic(
+  () => import("./code-editor").then((m) => ({ default: m.CodeEditor })),
+  { ssr: false, loading: () => <div className="h-full animate-pulse bg-muted" /> }
+)
 
 type FileType = "text" | "image" | "binary"
 
@@ -27,7 +18,6 @@ type OpenFile = {
   name: string
   content: string
   fileType: FileType
-  language: Extension | null
   modified: boolean
   savedContent: string
   size: number
@@ -113,7 +103,6 @@ export function EditorPanel({ externalOpen }: { externalOpen?: string | null }) 
           name,
           content: data.type === "text" ? data.content : "",
           fileType: data.type,
-          language: data.type === "text" ? cachedLanguage(name) : null,
           modified: false,
           savedContent: data.type === "text" ? data.content : "",
           size: data.size,
@@ -155,7 +144,6 @@ export function EditorPanel({ externalOpen }: { externalOpen?: string | null }) 
 
   return (
     <div className="flex h-full flex-col overflow-hidden">
-      {/* Error banner */}
       {error ? (
         <p className="shrink-0 border-b border-border bg-destructive/10 px-3 py-1 text-xs text-destructive">
           {error}
@@ -169,7 +157,6 @@ export function EditorPanel({ externalOpen }: { externalOpen?: string | null }) 
         </p>
       ) : null}
 
-      {/* Tab bar */}
       {files.length > 0 ? (
         <div className="flex shrink-0 items-stretch overflow-x-auto border-b border-border">
           {files.map((f, i) => (
@@ -209,7 +196,6 @@ export function EditorPanel({ externalOpen }: { externalOpen?: string | null }) 
         </div>
       ) : null}
 
-      {/* Content area */}
       <div className="min-h-0 flex-1">
         {!activeFile ? (
           <div className="flex h-full items-center justify-center text-xs text-muted-foreground">
@@ -239,8 +225,8 @@ export function EditorPanel({ externalOpen }: { externalOpen?: string | null }) 
             ) : null}
             <div className="min-h-0 flex-1">
               <CodeEditor
+                filename={activeFile.name}
                 content={activeFile.content}
-                language={activeFile.language}
                 onChange={(content) =>
                   dispatch({ type: "changed", index: activeIndex, content })
                 }

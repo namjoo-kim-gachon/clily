@@ -10,22 +10,36 @@ import { oneDark } from "@codemirror/theme-one-dark"
 import { basicSetup, EditorView } from "codemirror"
 import { useTheme } from "next-themes"
 
+import { getLanguageExtension } from "@/lib/file-language"
+
 const FILL_HEIGHT = EditorView.theme({
   "&": { height: "100%" },
   ".cm-scroller": { overflow: "auto" },
 })
 
+// Cache Extension objects by file extension to avoid recreating the editor
+// when switching between files of the same language.
+const LANGUAGE_CACHE = new Map<string, Extension | null>()
+
+function cachedLanguage(filename: string): Extension | null {
+  const ext = filename.split(".").pop()?.toLowerCase() ?? ""
+  if (LANGUAGE_CACHE.has(ext)) return LANGUAGE_CACHE.get(ext) as Extension | null
+  const lang = getLanguageExtension(filename)
+  LANGUAGE_CACHE.set(ext, lang)
+  return lang
+}
+
 type CodeEditorProps = {
+  filename: string
   content: string
-  language: Extension | null
   onChange?: (content: string) => void
   onSave?: () => void
 }
 
-export function CodeEditor({ content, language, onChange, onSave }: CodeEditorProps) {
+export function CodeEditor({ filename, content, onChange, onSave }: CodeEditorProps) {
   const containerRef = useRef<HTMLDivElement>(null)
   const viewRef = useRef<EditorView | null>(null)
-  // Use refs for callbacks so they're always fresh without triggering effect deps
+  // Refs keep callbacks fresh without causing the editor to be recreated
   const contentRef = useRef(content)
   const onChangeRef = useRef(onChange)
   const onSaveRef = useRef(onSave)
@@ -34,6 +48,7 @@ export function CodeEditor({ content, language, onChange, onSave }: CodeEditorPr
   onSaveRef.current = onSave
 
   const { resolvedTheme } = useTheme()
+  const language = cachedLanguage(filename)
 
   // (Re)create editor when theme or language changes
   useEffect(() => {
