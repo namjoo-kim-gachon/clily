@@ -1289,8 +1289,8 @@ export function TerminalViewer({ embedded = false, onOpenFile }: { embedded?: bo
         isMobileEnvironment
           ? "fixed inset-0 box-border grid grid-rows-[auto_minmax(0,1fr)_auto_auto_auto] gap-2 px-[max(0.5rem,env(safe-area-inset-left))] pt-[max(0.5rem,env(safe-area-inset-top))] pr-[max(0.5rem,env(safe-area-inset-right))] pb-[max(0.5rem,env(safe-area-inset-bottom))] sm:gap-3"
           : embedded
-            ? "h-full box-border grid grid-rows-[auto_minmax(0,1fr)] gap-2 p-2"
-            : "fixed inset-0 box-border grid grid-rows-[auto_minmax(0,1fr)] gap-2 px-[max(0.5rem,env(safe-area-inset-left))] pt-[max(0.5rem,env(safe-area-inset-top))] pr-[max(0.5rem,env(safe-area-inset-right))] pb-[max(0.5rem,env(safe-area-inset-bottom))] h-dvh"
+            ? "h-full box-border grid grid-rows-[auto_minmax(0,1fr)_auto] gap-2 p-2"
+            : "fixed inset-0 box-border grid grid-rows-[auto_minmax(0,1fr)_auto] gap-2 px-[max(0.5rem,env(safe-area-inset-left))] pt-[max(0.5rem,env(safe-area-inset-top))] pr-[max(0.5rem,env(safe-area-inset-right))] pb-[max(0.5rem,env(safe-area-inset-bottom))] h-dvh"
       }
     >
       <TerminalHeader
@@ -1311,30 +1311,28 @@ export function TerminalViewer({ embedded = false, onOpenFile }: { embedded?: bo
         onScrollToBottom={() => terminalRef.current?.scrollToBottom()}
       />
 
-      {isMobileEnvironment ? (
-        <>
-          <TerminalCommandInputForm
-            inputValue={inputValue}
-            showSubmitButton={isMobileEnvironment}
-            onInputValueChange={setInputValue}
-            onSubmit={onSubmit}
-            onSubmitEnterOnly={onSubmitEnterOnly}
-          />
+      <TerminalCommandInputForm
+        inputValue={inputValue}
+        showSubmitButton={true}
+        onInputValueChange={setInputValue}
+        onSubmit={onSubmit}
+        onSubmitEnterOnly={onSubmitEnterOnly}
+      />
 
-          <TerminalShortcutForm
-            expression={specialExpression}
-            isDropdownOpen={isSpecialDropdownOpen}
-            isSkillDropdownOpen={isSkillDropdownOpen}
-            onExpressionChange={onExpressionChange}
-            onToggleDropdown={handleToggleSpecialDropdown}
-            onToggleSkillDropdown={handleToggleSkillDropdown}
-            onSubmit={onSpecialSubmit}
-            onSelectPreset={onSelectPreset}
-            onSelectSkillCommand={handleSelectSkillCommand}
-            manualShortcutPreset={manualShortcutPreset}
-            recentSkillCommand={recentSkillCommand}
-          />
-        </>
+      {isMobileEnvironment ? (
+        <TerminalShortcutForm
+          expression={specialExpression}
+          isDropdownOpen={isSpecialDropdownOpen}
+          isSkillDropdownOpen={isSkillDropdownOpen}
+          onExpressionChange={onExpressionChange}
+          onToggleDropdown={handleToggleSpecialDropdown}
+          onToggleSkillDropdown={handleToggleSkillDropdown}
+          onSubmit={onSpecialSubmit}
+          onSelectPreset={onSelectPreset}
+          onSelectSkillCommand={handleSelectSkillCommand}
+          manualShortcutPreset={manualShortcutPreset}
+          recentSkillCommand={recentSkillCommand}
+        />
       ) : null}
     </div>
   )
