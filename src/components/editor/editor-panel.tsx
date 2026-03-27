@@ -35,6 +35,7 @@ type EditorAction =
   | { type: "changed"; index: number; content: string }
   | { type: "saved"; index: number }
   | { type: "activated"; index: number }
+  | { type: "reloaded"; index: number; content: string; size: number; truncated?: boolean }
 
 function editorReducer(state: EditorState, action: EditorAction): EditorState {
   switch (action.type) {
@@ -65,6 +66,16 @@ function editorReducer(state: EditorState, action: EditorAction): EditorState {
     }
     case "activated":
       return { ...state, activeIndex: action.index }
+    case "reloaded": {
+      const files = state.files.map((f, i) =>
+        i === action.index
+          ? { ...f, content: action.content, savedContent: action.content, modified: false, size: action.size, truncated: action.truncated }
+          : f
+      )
+      return { ...state, files }
+    }
+    default:
+      return state
   }
 }
 
@@ -74,7 +85,7 @@ type FileResponse =
   | { type: "binary"; size: number }
   | { error: string }
 
-export function EditorPanel({ externalOpen }: { externalOpen?: string | null }) {
+export function EditorPanel({ externalOpen }: { externalOpen?: { path: string; nonce: number } | null }) {
   const [{ files, activeIndex }, dispatch] = useReducer(editorReducer, {
     files: [],
     activeIndex: -1,
@@ -136,8 +147,29 @@ export function EditorPanel({ externalOpen }: { externalOpen?: string | null }) 
     }
   }, [activeIndex, files])
 
+  const reloadActiveFile = useCallback(async () => {
+    const file = activeIndex >= 0 ? files[activeIndex] : null
+    if (!file || file.fileType !== "text") return
+
+    try {
+      const res = await fetch(`/api/file?path=${encodeURIComponent(file.path)}`)
+      const data = (await res.json()) as FileResponse
+
+      if ("error" in data) {
+        setError(data.error)
+        return
+      }
+
+      if (data.type === "text") {
+        dispatch({ type: "reloaded", index: activeIndex, content: data.content, size: data.size, truncated: data.truncated })
+      }
+    } catch {
+      setError("Network error")
+    }
+  }, [activeIndex, files])
+
   useEffect(() => {
-    if (externalOpen) void openFile(externalOpen)
+    if (externalOpen) void openFile(externalOpen.path)
   }, [externalOpen, openFile])
 
   const activeFile = activeIndex >= 0 ? files[activeIndex] : null
@@ -193,6 +225,16 @@ export function EditorPanel({ externalOpen }: { externalOpen?: string | null }) 
               </button>
             </div>
           ))}
+          {activeFile?.fileType === "text" ? (
+            <button
+              type="button"
+              onClick={() => void reloadActiveFile()}
+              className="ml-auto shrink-0 border-l border-border px-2 text-muted-foreground hover:bg-muted hover:text-foreground"
+              title="Reload from disk"
+            >
+              ↺
+            </button>
+          ) : null}
         </div>
       ) : null}
 
