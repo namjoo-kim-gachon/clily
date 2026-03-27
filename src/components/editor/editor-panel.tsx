@@ -225,15 +225,42 @@ export function EditorPanel({ externalOpen }: { externalOpen?: { path: string; n
               </button>
             </div>
           ))}
-          {activeFile?.fileType === "text" ? (
-            <button
-              type="button"
-              onClick={() => void reloadActiveFile()}
-              className="ml-auto shrink-0 border-l border-border px-2 text-muted-foreground hover:bg-muted hover:text-foreground"
-              title="Reload from disk"
-            >
-              ↺
-            </button>
+          {activeFile ? (
+            <div className="ml-auto flex shrink-0 items-stretch">
+              {activeFile.fileType === "text" ? (
+                <button
+                  type="button"
+                  onClick={() => void reloadActiveFile()}
+                  className="border-l border-border px-2 text-muted-foreground hover:bg-muted hover:text-foreground"
+                  title="Reload from disk"
+                >
+                  ↺
+                </button>
+              ) : null}
+              <button
+                type="button"
+                onClick={() => {
+                  if (activeFile.fileType === "text") {
+                    const blob = new Blob([activeFile.content], { type: "text/plain" })
+                    const url = URL.createObjectURL(blob)
+                    const a = document.createElement("a")
+                    a.href = url
+                    a.download = activeFile.name
+                    a.click()
+                    URL.revokeObjectURL(url)
+                  } else {
+                    const a = document.createElement("a")
+                    a.href = `/api/file/raw?path=${encodeURIComponent(activeFile.path)}`
+                    a.download = activeFile.name
+                    a.click()
+                  }
+                }}
+                className="border-l border-border px-2 text-muted-foreground hover:bg-muted hover:text-foreground"
+                title="Download"
+              >
+                ↓
+              </button>
+            </div>
           ) : null}
         </div>
       ) : null}
